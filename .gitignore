@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# AI Models & Data (Too large for Git)
+*.pth
+*.bin
+*.h5
+*.npy
+*.pkl
+data/samples/*
+
+# OS files
+.DS_Store
