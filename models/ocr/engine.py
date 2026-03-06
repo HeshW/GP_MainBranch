@@ -1,11 +1,25 @@
 """
-OCR Engine – Model A.
+OCR Engine – Model A (v2).
 
 Provides :class:`OCREngine`, the public interface consumed by the
 Manager / Orchestrator (Model D).  Text extraction is performed by
 PaddleOCR; the raw OCR output is then parsed with the regex patterns
 defined in :mod:`models.ocr.patterns` to produce a structured,
 JSON-serialisable result.
+
+v2 improvements over v1
+-----------------------
+* **Multi-match extraction** – ``finditer`` replaces ``search`` so every
+  occurrence of a lab synonym is examined.  When more than one match is found
+  the *last* match wins (deterministic duplicate policy) and a warning is
+  emitted with the match count.
+* **Broadened unit capture** – units that contain digits and ``^`` (e.g.
+  ``10^3/µL``, ``x10^3/uL``, ``10^9/L``) are now recognised.
+* **Multi-pass parsing** – extraction is attempted on (1) the full normalised
+  text, (2) each individual line, and (3) a cross-line fallback that joins a
+  label line with a value-only next line.
+* **``source_match`` field** – every lab entry now includes the exact substring
+  (or joined lines) that was used to derive the value/unit.
 """
 
 from __future__ import annotations
@@ -14,7 +28,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from .patterns import LAB_PATTERNS, SYNONYM_MAP
+from .patterns import LAB_LABEL_PATTERNS, LAB_PATTERNS, LEADING_VALUE_PATTERN, SYNONYM_MAP
 from .utils import preprocess
 
 # PaddleOCR is an optional heavy dependency; we import it lazily so that
@@ -33,7 +47,8 @@ except ImportError:  # pragma: no cover
 # ---------------------------------------------------------------------------
 ImageInput = Union[str, Path]
 
-LabEntry = Dict[str, Any]   # {"value": ..., "unit": ..., "confidence": ...}
+# Each lab entry carries value, unit, and the exact source substring.
+LabEntry = Dict[str, Any]   # {"value": float, "unit": str|None, "source_match": str}
 OCRResult = Dict[str, Any]  # top-level return type of OCREngine.extract()
 
 
@@ -46,8 +61,177 @@ def _normalise_text(raw: str) -> str:
     return re.sub(r"\s+", " ", raw).strip()
 
 
+def _build_entry(
+    canonical: str,
+    match: "re.Match[str]",
+    warnings: List[str],
+) -> Optional[LabEntry]:
+    """Build a :class:`LabEntry` from a regex *match*, or ``None`` on failure.
+
+    Parameters
+    ----------
+    canonical:
+        The canonical key being extracted (used only in warning messages).
+    match:
+        A ``re.Match`` object from one of the ``LAB_PATTERNS`` patterns.
+    warnings:
+        Mutable list to which any parsing warning is appended.
+
+    Returns
+    -------
+    LabEntry | None
+        A dict with ``value``, ``unit``, and ``source_match`` keys, or
+        ``None`` if the numeric value could not be parsed.
+    """
+    raw_value: str = match.group(1)
+    raw_unit: Optional[str] = match.group(2)
+    source_match: str = match.group(0)
+
+    # Normalise decimal separator (some locales use commas).
+    try:
+        value = float(raw_value.replace(",", "."))
+    except ValueError:
+        warnings.append(
+            f"Could not parse numeric value for '{canonical}': '{raw_value}'"
+        )
+        return None
+
+    return {
+        "value": value,
+        "unit": raw_unit if raw_unit else None,
+        "source_match": source_match,
+    }
+
+
+def _extract_from_text_block(
+    text_block: str,
+    labs: Dict[str, LabEntry],
+    warnings: List[str],
+    *,
+    skip_existing: bool = True,
+) -> None:
+    """Run all :data:`LAB_PATTERNS` against *text_block* and populate *labs*.
+
+    Parameters
+    ----------
+    text_block:
+        Pre-normalised text to search.
+    labs:
+        Accumulator dict; modified in place.
+    warnings:
+        Mutable warnings list; modified in place.
+    skip_existing:
+        When ``True`` (default for line-by-line pass), skip any canonical key
+        that is already present in *labs*.  Set to ``False`` on the first
+        (full-text) pass so that multi-match warnings are still generated.
+    """
+    for canonical, pattern in LAB_PATTERNS.items():
+        if skip_existing and canonical in labs:
+            continue
+
+        matches = list(pattern.finditer(text_block))
+        if not matches:
+            continue
+
+        if len(matches) > 1:
+            warnings.append(
+                f"Multiple matches ({len(matches)}) for '{canonical}'; "
+                "keeping last match."
+            )
+
+        entry = _build_entry(canonical, matches[-1], warnings)
+        if entry is not None:
+            labs[canonical] = entry
+
+
+def _cross_line_fallback(
+    lines: List[str],
+    labs: Dict[str, LabEntry],
+    warnings: List[str],
+) -> None:
+    """Associate a label-only line with a numeric value on the following line.
+
+    This last-resort pass fires only for canonical keys *not* found by the
+    earlier passes.  It is conservative:
+
+    * The current line must contain a recognised synonym (label-presence check).
+    * The full lab pattern must *not* match the current line (confirming there
+      is no value on the label line).
+    * The next non-empty line must match :data:`LEADING_VALUE_PATTERN` (i.e. it
+      is clearly just a number with an optional unit).
+
+    A warning is always emitted when this fallback is used.
+    """
+    missing = set(LAB_PATTERNS) - set(labs)
+    if not missing:
+        return
+
+    for i, raw_line in enumerate(lines):
+        if not missing:
+            break
+
+        norm_line = _normalise_text(raw_line)
+        if not norm_line:
+            continue
+
+        # Find the next non-empty line.
+        next_index = i + 1
+        while next_index < len(lines) and not _normalise_text(lines[next_index]):
+            next_index += 1
+        if next_index >= len(lines):
+            continue
+
+        next_norm = _normalise_text(lines[next_index])
+        vm = LEADING_VALUE_PATTERN.match(next_norm)
+        if vm is None:
+            continue
+
+        # Check each still-missing canonical key against this line.
+        for canonical in list(missing):
+            # Label must be present on this line …
+            if LAB_LABEL_PATTERNS[canonical].search(norm_line) is None:
+                continue
+            # … but the full pattern (with value) must NOT match – if it did,
+            # the earlier passes would have found it already.
+            if LAB_PATTERNS[canonical].search(norm_line) is not None:
+                continue
+
+            raw_value: str = vm.group(1)
+            raw_unit: Optional[str] = vm.group(2)
+            try:
+                value = float(raw_value.replace(",", "."))
+            except ValueError:
+                continue
+
+            warnings.append(
+                f"Cross-line fallback for '{canonical}': label on line "
+                f"{i + 1}, value on line {next_index + 1}."
+            )
+            labs[canonical] = {
+                "value": value,
+                "unit": raw_unit if raw_unit else None,
+                "source_match": f"{norm_line} → {next_norm}",
+            }
+            missing.discard(canonical)
+
+
 def _parse_labs(text: str) -> tuple[Dict[str, LabEntry], List[str]]:
-    """Extract structured lab values from *text* using regex patterns.
+    """Extract structured lab values from *text* using a multi-pass strategy.
+
+    Pass 1 – full normalised text
+        All patterns are searched against the entire text with ``finditer``.
+        When a canonical key appears more than once the *last* match is kept
+        and a warning is emitted with the match count.
+
+    Pass 2 – line-by-line
+        For any canonical key not found in Pass 1, each individual line is
+        searched.  This catches labs whose label and value happen to sit on
+        the same OCR line but are separated from unrelated text.
+
+    Pass 3 – cross-line fallback
+        For any canonical key still missing, a heuristic checks whether a
+        label-only line is immediately followed by a value-only line.  A
+        warning is always emitted when this path is taken.
 
     Parameters
     ----------
@@ -58,33 +242,26 @@ def _parse_labs(text: str) -> tuple[Dict[str, LabEntry], List[str]]:
     -------
     tuple[dict, list]
         A ``(labs, warnings)`` pair where *labs* maps canonical keys to
-        ``{"value": float, "unit": str | None}`` dicts and *warnings* is a
-        list of human-readable strings about anything ambiguous.
+        ``{"value": float, "unit": str | None, "source_match": str}`` dicts
+        and *warnings* is a list of human-readable strings about anything
+        ambiguous.
     """
     labs: Dict[str, LabEntry] = {}
     warnings: List[str] = []
+
+    # Pass 1: full normalised text (multi-match aware).
     normalised = _normalise_text(text)
+    _extract_from_text_block(normalised, labs, warnings, skip_existing=False)
 
-    for canonical, pattern in LAB_PATTERNS.items():
-        match = pattern.search(normalised)
-        if match is None:
-            continue
+    # Pass 2: line-by-line for labs not yet found.
+    if len(labs) < len(LAB_PATTERNS):
+        for line in text.splitlines():
+            norm_line = _normalise_text(line)
+            if norm_line:
+                _extract_from_text_block(norm_line, labs, warnings, skip_existing=True)
 
-        raw_value, raw_unit = match.group(1), match.group(2)
-
-        # Normalise decimal separator (some locales use commas).
-        try:
-            value = float(raw_value.replace(",", "."))
-        except ValueError:
-            warnings.append(
-                f"Could not parse numeric value for '{canonical}': '{raw_value}'"
-            )
-            continue
-
-        labs[canonical] = {
-            "value": value,
-            "unit": raw_unit if raw_unit else None,
-        }
+    # Pass 3: cross-line fallback.
+    _cross_line_fallback(text.splitlines(), labs, warnings)
 
     return labs, warnings
 
@@ -112,7 +289,7 @@ class OCREngine:
     >>> engine = OCREngine()
     >>> result = engine.extract("path/to/lab_report.png")
     >>> print(result["labs"]["glucose"])
-    {'value': 95.0, 'unit': 'mg/dL'}
+    {'value': 95.0, 'unit': 'mg/dL', 'source_match': 'Glucose: 95 mg/dL'}
     """
 
     def __init__(
@@ -150,14 +327,17 @@ class OCREngine:
 
             ``labs``
                 Dict mapping canonical lab names (e.g. ``"glucose"``) to
-                ``{"value": float, "unit": str | None}`` entries.
+                ``{"value": float, "unit": str | None, "source_match": str}``
+                entries.  ``source_match`` is the exact substring (or joined
+                lines for cross-line matches) used to derive the value/unit.
 
             ``raw_text``
                 Full concatenated OCR text, useful for debugging.
 
             ``warnings``
                 List of strings describing any issues encountered during
-                extraction (empty if everything parsed cleanly).
+                extraction (empty if everything parsed cleanly).  Includes
+                duplicate-match warnings and cross-line fallback notices.
 
         Raises
         ------
@@ -238,7 +418,9 @@ def extract_from_text(text: str) -> OCRResult:
     Returns
     -------
     dict
-        Same structure as :meth:`OCREngine.extract`.
+        Same structure as :meth:`OCREngine.extract`.  Each entry in ``labs``
+        contains ``value`` (float), ``unit`` (str | None), and
+        ``source_match`` (str – the exact matched substring).
     """
     labs, warnings = _parse_labs(text)
     return {
