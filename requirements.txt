@@ -1,0 +1,11 @@
+# Core OCR dependencies (Model A)
+paddleocr>=2.7.3
+paddlepaddle>=2.6.0
+
+# Image processing
+opencv-python-headless>=4.9.0.80
+numpy>=1.26.4
+Pillow>=10.3.0
+
+# Testing
+pytest>=8.1.1
