@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
 import pytest
 
-from models.ocr.engine import extract_from_text, _normalise_text, _parse_labs
+from models.ocr.engine import extract_from_text, _normalise_text, _parse_labs, _to_rgb_array
 from models.ocr.patterns import LAB_PATTERNS, SYNONYM_MAP
 
 
@@ -404,15 +405,37 @@ class TestOCREngineExtractClsCompat:
     """Tests for OCREngine.extract() cls-argument fallback – no real PaddleOCR required."""
 
     def _make_engine(self, monkeypatch, fake_ocr_instance):
-        """Return an OCREngine whose internal _ocr is *fake_ocr_instance*."""
+        """Return an OCREngine whose internal _ocr is *fake_ocr_instance*.
+
+        PIL is patched so that any path input returns a tiny 1×1 RGB array,
+        allowing tests to pass path strings without needing valid image files.
+        """
         import models.ocr.engine as engine_mod
 
         class FakePaddleOCR:
             def __init__(self, **kwargs):
                 pass
 
+        # Fake PIL so _to_rgb_array can open any existing path without real PNG data.
+        class _FakePILImg:
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                pass
+            def convert(self, mode):
+                return np.zeros((1, 1, 3), dtype=np.uint8)
+
+        class _FakePIL:
+            Image = _FakePILImg
+
+            @staticmethod
+            def open(path):
+                return _FakePILImg()
+
         monkeypatch.setattr(engine_mod, "_PaddleOCR", FakePaddleOCR)
         monkeypatch.setattr(engine_mod, "_PADDLEOCR_AVAILABLE", True)
+        monkeypatch.setattr(engine_mod, "_PILImage", _FakePIL)
+        monkeypatch.setattr(engine_mod, "_PIL_AVAILABLE", True)
 
         from models.ocr.engine import OCREngine
         engine = OCREngine(preprocess_image=False)
@@ -473,4 +496,262 @@ class TestOCREngineExtractClsCompat:
         engine = self._make_engine(monkeypatch, FakeOCR())
         with pytest.raises(RuntimeError, match="PaddleOCR failed to process"):
             engine.extract(str(img))
+
+
+# ---------------------------------------------------------------------------
+# OCREngine – extract() input normalisation (ndarray / PIL / path → RGB array)
+# ---------------------------------------------------------------------------
+
+class TestOCREngineExtractInputNormalisation:
+    """Regression tests for ndarray/PIL input and RGB normalisation.
+
+    No real PaddleOCR or image files required – PaddleOCR and PIL are both
+    monkeypatched.
+    """
+
+    def _make_engine(self, monkeypatch, fake_ocr_instance, *, preprocess_image=False):
+        """Return an OCREngine with *fake_ocr_instance* wired in."""
+        import models.ocr.engine as engine_mod
+
+        class FakePaddleOCR:
+            def __init__(self, **kwargs):
+                pass
+
+        monkeypatch.setattr(engine_mod, "_PaddleOCR", FakePaddleOCR)
+        monkeypatch.setattr(engine_mod, "_PADDLEOCR_AVAILABLE", True)
+
+        from models.ocr.engine import OCREngine
+        engine = OCREngine(preprocess_image=preprocess_image)
+        engine._ocr = fake_ocr_instance
+        return engine
+
+    # ------------------------------------------------------------------ helpers
+
+    @staticmethod
+    def _capturing_fake_ocr():
+        """Return a FakeOCR that records every call to .ocr() and its first arg."""
+        calls = []
+
+        class FakeOCR:
+            def ocr(self, img, **kwargs):
+                calls.append(img)
+                return []
+
+        return FakeOCR(), calls
+
+    # ------------------------------------------------------------------ tests
+
+    def test_numpy_rgb_array_accepted_directly(self, monkeypatch):
+        """extract() must accept a (H,W,3) uint8 ndarray without calling Path()."""
+        fake_ocr, calls = self._capturing_fake_ocr()
+        engine = self._make_engine(monkeypatch, fake_ocr)
+
+        arr = np.zeros((4, 4, 3), dtype=np.uint8)
+        engine.extract(arr)
+
+        assert len(calls) == 1
+        assert isinstance(calls[0], np.ndarray), "ocr() should receive a numpy array"
+
+    def test_numpy_array_never_wrapped_in_path(self, monkeypatch):
+        """Passing a numpy array must not trigger Path(image) construction."""
+        import models.ocr.engine as engine_mod
+
+        path_calls = []
+        original_path = engine_mod.Path
+
+        class SpyPath(original_path):
+            def __new__(cls, *args, **kwargs):
+                path_calls.append(args)
+                return super().__new__(cls, *args, **kwargs)
+
+        monkeypatch.setattr(engine_mod, "Path", SpyPath)
+
+        fake_ocr, _ = self._capturing_fake_ocr()
+        engine = self._make_engine(monkeypatch, fake_ocr)
+
+        arr = np.zeros((4, 4, 3), dtype=np.uint8)
+        engine.extract(arr)
+
+        # Path() must not have been called with the numpy array.
+        assert not any(
+            isinstance(a[0], np.ndarray) for a in path_calls if a
+        ), "Path() should not be called with a numpy array"
+
+    def test_rgba_array_converted_to_rgb(self, monkeypatch):
+        """A (H,W,4) RGBA array must be converted to (H,W,3) RGB before ocr()."""
+        fake_ocr, calls = self._capturing_fake_ocr()
+        engine = self._make_engine(monkeypatch, fake_ocr)
+
+        rgba = np.zeros((4, 4, 4), dtype=np.uint8)
+        rgba[:, :, 3] = 255  # set alpha channel
+        engine.extract(rgba)
+
+        assert len(calls) == 1
+        assert calls[0].shape[2] == 3, "Alpha channel should have been dropped"
+
+    def test_grayscale_array_converted_to_rgb(self, monkeypatch):
+        """A (H,W) grayscale array must be expanded to (H,W,3) RGB before ocr()."""
+        fake_ocr, calls = self._capturing_fake_ocr()
+        engine = self._make_engine(monkeypatch, fake_ocr)
+
+        gray = np.full((4, 4), 128, dtype=np.uint8)
+        engine.extract(gray)
+
+        assert len(calls) == 1
+        assert calls[0].ndim == 3 and calls[0].shape[2] == 3, (
+            "Grayscale array should have been expanded to 3-channel RGB"
+        )
+
+    def test_path_input_opened_via_pil_and_converted_to_rgb(self, monkeypatch, tmp_path):
+        """Path inputs must be loaded via PIL.Image.open and converted to RGB."""
+        import models.ocr.engine as engine_mod
+
+        open_calls = []
+
+        class _FakePILImg:
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                pass
+            def convert(self, mode):
+                open_calls.append(mode)
+                return np.zeros((1, 1, 3), dtype=np.uint8)
+
+        class _FakePIL:
+            Image = _FakePILImg
+
+            @staticmethod
+            def open(path):
+                return _FakePILImg()
+
+        monkeypatch.setattr(engine_mod, "_PILImage", _FakePIL)
+        monkeypatch.setattr(engine_mod, "_PIL_AVAILABLE", True)
+
+        fake_ocr, calls = self._capturing_fake_ocr()
+        engine = self._make_engine(monkeypatch, fake_ocr)
+
+        img_path = tmp_path / "report.png"
+        img_path.write_bytes(b"")  # just needs to exist
+
+        engine.extract(str(img_path))
+
+        assert "RGB" in open_calls, "PIL convert('RGB') should have been called"
+        assert len(calls) == 1
+        assert isinstance(calls[0], np.ndarray), "ocr() should receive a numpy array"
+
+    def test_ocr_called_with_ndarray_not_string(self, monkeypatch, tmp_path):
+        """ocr() must always receive a numpy array, never a file-path string."""
+        import models.ocr.engine as engine_mod
+
+        class _FakePILImg:
+            def __enter__(self): return self
+            def __exit__(self, *a): pass
+            def convert(self, mode): return np.zeros((2, 2, 3), dtype=np.uint8)
+
+        class _FakePIL:
+            Image = _FakePILImg
+            @staticmethod
+            def open(path): return _FakePILImg()
+
+        monkeypatch.setattr(engine_mod, "_PILImage", _FakePIL)
+        monkeypatch.setattr(engine_mod, "_PIL_AVAILABLE", True)
+
+        fake_ocr, calls = self._capturing_fake_ocr()
+        engine = self._make_engine(monkeypatch, fake_ocr)
+
+        img_path = tmp_path / "report.png"
+        img_path.write_bytes(b"")
+
+        engine.extract(str(img_path))
+
+        assert len(calls) == 1
+        assert isinstance(calls[0], np.ndarray), (
+            "ocr() must be called with a numpy array, not a path string"
+        )
+        assert not isinstance(calls[0], str)
+
+    def test_file_not_found_for_missing_path(self, monkeypatch):
+        """extract() must raise FileNotFoundError for non-existent paths."""
+        fake_ocr, _ = self._capturing_fake_ocr()
+        engine = self._make_engine(monkeypatch, fake_ocr)
+
+        with pytest.raises(FileNotFoundError):
+            engine.extract("/no/such/file.png")
+
+    def test_non_uint8_array_is_cast_to_uint8(self, monkeypatch):
+        """A float64 ndarray should be cast to uint8 before ocr()."""
+        fake_ocr, calls = self._capturing_fake_ocr()
+        engine = self._make_engine(monkeypatch, fake_ocr)
+
+        arr = np.full((4, 4, 3), 0.5, dtype=np.float64)
+        engine.extract(arr)
+
+        assert calls[0].dtype == np.uint8, "Array should be cast to uint8"
+
+
+# ---------------------------------------------------------------------------
+# _to_rgb_array – unit tests for the normalisation helper
+# ---------------------------------------------------------------------------
+
+class TestToRgbArray:
+    """Unit tests for the ``_to_rgb_array`` helper."""
+
+    def test_rgb_array_passthrough(self):
+        arr = np.zeros((4, 4, 3), dtype=np.uint8)
+        out = _to_rgb_array(arr)
+        assert out.shape == (4, 4, 3)
+        assert out.dtype == np.uint8
+
+    def test_rgba_drops_alpha(self):
+        arr = np.zeros((4, 4, 4), dtype=np.uint8)
+        out = _to_rgb_array(arr)
+        assert out.shape == (4, 4, 3)
+
+    def test_grayscale_2d_to_rgb(self):
+        arr = np.full((4, 4), 200, dtype=np.uint8)
+        out = _to_rgb_array(arr)
+        assert out.shape == (4, 4, 3)
+        # All three channels should equal the original value.
+        assert np.all(out[:, :, 0] == 200)
+        assert np.all(out[:, :, 1] == 200)
+        assert np.all(out[:, :, 2] == 200)
+
+    def test_single_channel_3d_to_rgb(self):
+        arr = np.full((4, 4, 1), 100, dtype=np.uint8)
+        out = _to_rgb_array(arr)
+        assert out.shape == (4, 4, 3)
+
+    def test_float_array_cast_to_uint8(self):
+        arr = np.full((2, 2, 3), 128.0, dtype=np.float32)
+        out = _to_rgb_array(arr)
+        assert out.dtype == np.uint8
+
+    def test_unsupported_type_raises_type_error(self):
+        with pytest.raises(TypeError, match="Unsupported image type"):
+            _to_rgb_array(12345)
+
+    def test_missing_path_raises_file_not_found(self):
+        with pytest.raises(FileNotFoundError):
+            _to_rgb_array("/definitely/does/not/exist.png")
+
+    def test_pil_image_converted_to_rgb(self, monkeypatch):
+        """PIL.Image.Image input is converted to an RGB ndarray."""
+        import models.ocr.engine as engine_mod
+
+        class FakePILImage:
+            def convert(self, mode):
+                return np.zeros((2, 2, 3), dtype=np.uint8)
+
+        # Make isinstance check succeed by patching _PILImage.Image.
+        class FakePIL:
+            class Image(FakePILImage):
+                pass
+
+        monkeypatch.setattr(engine_mod, "_PILImage", FakePIL)
+        monkeypatch.setattr(engine_mod, "_PIL_AVAILABLE", True)
+
+        pil_img = FakePIL.Image()
+        out = engine_mod._to_rgb_array(pil_img)
+        assert isinstance(out, np.ndarray)
+        assert out.shape == (2, 2, 3)
 
