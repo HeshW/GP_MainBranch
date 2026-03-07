@@ -304,7 +304,14 @@ class OCREngine:
                 "PaddleOCR is not installed. "
                 "Install it with: pip install paddleocr paddlepaddle"
             )
-        self._ocr = _PaddleOCR(use_angle_cls=use_angle_cls, lang=lang, show_log=False)
+        try:
+            self._ocr = _PaddleOCR(use_angle_cls=use_angle_cls, lang=lang, show_log=False)
+        except ValueError as exc:
+            if "Unknown argument: show_log" in str(exc):
+                # Older/newer PaddleOCR versions may not accept show_log; retry without it.
+                self._ocr = _PaddleOCR(use_angle_cls=use_angle_cls, lang=lang)
+            else:
+                raise
         self._preprocess = preprocess_image
 
     # ------------------------------------------------------------------

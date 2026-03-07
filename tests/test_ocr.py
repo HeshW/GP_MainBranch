@@ -324,3 +324,74 @@ class TestSourceMatch:
         assert isinstance(roundtrip["labs"]["hemoglobin"]["source_match"], str)
         assert isinstance(roundtrip["labs"]["glucose"]["source_match"], str)
 
+
+# ---------------------------------------------------------------------------
+# OCREngine – init compatibility (show_log fallback)
+# ---------------------------------------------------------------------------
+
+class TestOCREngineInit:
+    """Tests for OCREngine.__init__ robustness – no real PaddleOCR required."""
+
+    def test_show_log_accepted(self, monkeypatch):
+        """When PaddleOCR accepts show_log, it is constructed once with that kwarg."""
+        calls = []
+
+        class FakePaddleOCR:
+            def __init__(self, **kwargs):
+                calls.append(kwargs)
+
+        import models.ocr.engine as engine_mod
+        monkeypatch.setattr(engine_mod, "_PaddleOCR", FakePaddleOCR)
+        monkeypatch.setattr(engine_mod, "_PADDLEOCR_AVAILABLE", True)
+
+        from models.ocr.engine import OCREngine
+        ocr = OCREngine()
+
+        assert len(calls) == 1
+        assert calls[0].get("show_log") is False
+
+    def test_show_log_fallback_on_unknown_argument(self, monkeypatch):
+        """When PaddleOCR rejects show_log with a ValueError, init retries without it."""
+        calls = []
+
+        class FakePaddleOCR:
+            def __init__(self, **kwargs):
+                calls.append(kwargs)
+                if "show_log" in kwargs:
+                    raise ValueError("Unknown argument: show_log")
+
+        import models.ocr.engine as engine_mod
+        monkeypatch.setattr(engine_mod, "_PaddleOCR", FakePaddleOCR)
+        monkeypatch.setattr(engine_mod, "_PADDLEOCR_AVAILABLE", True)
+
+        from models.ocr.engine import OCREngine
+        ocr = OCREngine()  # must not raise
+
+        assert len(calls) == 2, "Expected two construction attempts"
+        assert "show_log" in calls[0], "First attempt should include show_log"
+        assert "show_log" not in calls[1], "Second attempt must omit show_log"
+
+    def test_unrelated_value_error_is_reraised(self, monkeypatch):
+        """A ValueError unrelated to show_log must propagate, not be swallowed."""
+
+        class FakePaddleOCR:
+            def __init__(self, **kwargs):
+                raise ValueError("Something else went wrong")
+
+        import models.ocr.engine as engine_mod
+        monkeypatch.setattr(engine_mod, "_PaddleOCR", FakePaddleOCR)
+        monkeypatch.setattr(engine_mod, "_PADDLEOCR_AVAILABLE", True)
+
+        from models.ocr.engine import OCREngine
+        with pytest.raises(ValueError, match="Something else went wrong"):
+            OCREngine()
+
+    def test_import_error_when_paddle_unavailable(self, monkeypatch):
+        """OCREngine raises ImportError when PaddleOCR is not installed."""
+        import models.ocr.engine as engine_mod
+        monkeypatch.setattr(engine_mod, "_PADDLEOCR_AVAILABLE", False)
+
+        from models.ocr.engine import OCREngine
+        with pytest.raises(ImportError, match="PaddleOCR is not installed"):
+            OCREngine()
+
