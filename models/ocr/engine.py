@@ -28,6 +28,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+import numpy as np
+
 from .patterns import LAB_LABEL_PATTERNS, LAB_PATTERNS, LEADING_VALUE_PATTERN, SYNONYM_MAP
 from .utils import preprocess
 
@@ -41,11 +43,20 @@ except ImportError:  # pragma: no cover
     _PaddleOCR = None  # type: ignore[assignment, misc]
     _PADDLEOCR_AVAILABLE = False
 
+# PIL is an optional dependency; import lazily so the rest of the module
+# works without it.
+try:
+    from PIL import Image as _PILImage  # type: ignore[import]
+    _PIL_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _PILImage = None  # type: ignore[assignment]
+    _PIL_AVAILABLE = False
+
 
 # ---------------------------------------------------------------------------
 # Type aliases
 # ---------------------------------------------------------------------------
-ImageInput = Union[str, Path]
+ImageInput = Union[str, Path, "np.ndarray", Any]  # Any covers PIL.Image.Image
 
 # Each lab entry carries value, unit, and the exact source substring.
 LabEntry = Dict[str, Any]   # {"value": float, "unit": str|None, "source_match": str}
@@ -55,6 +66,75 @@ OCRResult = Dict[str, Any]  # top-level return type of OCREngine.extract()
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _to_rgb_array(image: ImageInput) -> np.ndarray:
+    """Normalise *image* to an RGB ``uint8`` NumPy array.
+
+    Accepted input types
+    --------------------
+    * ``str`` / :class:`~pathlib.Path` – loaded via PIL (``FileNotFoundError``
+      is raised if the path does not exist).
+    * :class:`numpy.ndarray` – ``(H, W)``, ``(H, W, 1)``, ``(H, W, 3)``, or
+      ``(H, W, 4)`` shapes are all handled.  The array is converted to
+      ``uint8`` if necessary.
+    * :class:`PIL.Image.Image` – converted to RGB and then to a NumPy array.
+
+    Returns
+    -------
+    np.ndarray
+        A ``(H, W, 3)`` ``uint8`` array in RGB channel order.
+
+    Raises
+    ------
+    FileNotFoundError
+        When *image* is a path that does not exist on the filesystem.
+    TypeError
+        When *image* is not one of the supported types.
+    """
+    # --- PIL Image ---
+    if _PIL_AVAILABLE and isinstance(image, _PILImage.Image):
+        return np.array(image.convert("RGB"), dtype=np.uint8)
+
+    # --- Path / str ---
+    if isinstance(image, (str, Path)):
+        path = Path(image)
+        if not path.exists():
+            raise FileNotFoundError(f"Image file not found: {path}")
+        if not _PIL_AVAILABLE:  # pragma: no cover
+            raise ImportError("Pillow is required to load image files. Install it with: pip install Pillow")
+        with _PILImage.open(path) as pil_img:
+            return np.array(pil_img.convert("RGB"), dtype=np.uint8)
+
+    # --- NumPy array ---
+    if isinstance(image, np.ndarray):
+        arr = image
+        # Ensure uint8.
+        if arr.dtype != np.uint8:
+            arr = arr.astype(np.uint8)
+        # Handle shapes.
+        if arr.ndim == 2:
+            # Grayscale (H, W) → (H, W, 3) RGB
+            return np.stack([arr, arr, arr], axis=2)
+        if arr.ndim == 3:
+            c = arr.shape[2]
+            if c == 1:
+                # (H, W, 1) → (H, W, 3)
+                return np.concatenate([arr, arr, arr], axis=2)
+            if c == 3:
+                return arr
+            if c == 4:
+                # RGBA → RGB (drop alpha)
+                return arr[:, :, :3]
+        raise TypeError(
+            f"Unsupported numpy array shape: {arr.shape}. "
+            "Expected (H, W), (H, W, 1), (H, W, 3), or (H, W, 4)."
+        )
+
+    raise TypeError(
+        f"Unsupported image type: {type(image).__name__}. "
+        "Expected str, Path, numpy.ndarray, or PIL.Image.Image."
+    )
+
 
 def _normalise_text(raw: str) -> str:
     """Collapse multiple whitespace characters and strip leading/trailing space."""
@@ -324,8 +404,16 @@ class OCREngine:
         Parameters
         ----------
         image:
-            Path to the image file (``str`` or :class:`~pathlib.Path`).
-            JPEG, PNG and most common formats are supported.
+            The image to process.  Accepted types:
+
+            * ``str`` or :class:`~pathlib.Path` – path to a JPEG, PNG or
+              other PIL-supported image file.
+            * :class:`numpy.ndarray` – ``(H, W)``, ``(H, W, 3)``, or
+              ``(H, W, 4)`` array (grayscale, RGB, or RGBA).  The array is
+              normalised to RGB ``uint8`` before being passed to PaddleOCR,
+              which avoids the ``IndexError`` triggered by PaddleX's internal
+              ``Normalize`` pre-processor.
+            * :class:`PIL.Image.Image` – converted to RGB automatically.
 
         Returns
         -------
@@ -349,21 +437,19 @@ class OCREngine:
         Raises
         ------
         FileNotFoundError
-            If *image* does not exist on the filesystem.
+            If *image* is a path that does not exist on the filesystem.
         RuntimeError
             If PaddleOCR fails to process the image.
         """
-        path = Path(image)
-        if not path.exists():
-            raise FileNotFoundError(f"Image file not found: {path}")
+        # Normalise to an RGB uint8 array; raises FileNotFoundError for
+        # missing paths before we ever touch PaddleOCR.
+        img_array = _to_rgb_array(image)
 
         try:
-            ocr_input: Union[str, Any]
             if self._preprocess:
-                preprocessed = preprocess(path)
-                ocr_input = preprocessed  # PaddleOCR accepts numpy arrays
+                ocr_input: np.ndarray = preprocess(img_array)
             else:
-                ocr_input = str(path)
+                ocr_input = img_array
 
             try:
                 result = self._ocr.ocr(ocr_input, cls=True)
@@ -375,8 +461,11 @@ class OCREngine:
                 else:
                     raise
         except Exception as exc:
+            # Provide a useful error label regardless of whether image was a
+            # path or an in-memory array.
+            label = str(image) if isinstance(image, (str, Path)) else f"<{type(image).__name__}>"
             raise RuntimeError(
-                f"PaddleOCR failed to process '{path}': {exc}"
+                f"PaddleOCR failed to process '{label}': {exc}"
             ) from exc
 
         raw_text = self._collect_text(result)
