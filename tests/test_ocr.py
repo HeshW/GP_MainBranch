@@ -12,7 +12,7 @@ import json
 import numpy as np
 import pytest
 
-from models.ocr.engine import extract_from_text, _normalise_text, _parse_labs, _to_rgb_array
+from models.ocr.engine import extract_from_text, _normalise_text, _parse_labs, _to_rgb_array, _ensure_hwc3_uint8
 from models.ocr.patterns import LAB_PATTERNS, SYNONYM_MAP
 
 
@@ -754,4 +754,138 @@ class TestToRgbArray:
         out = engine_mod._to_rgb_array(pil_img)
         assert isinstance(out, np.ndarray)
         assert out.shape == (2, 2, 3)
+
+
+# ---------------------------------------------------------------------------
+# _ensure_hwc3_uint8 – unit tests for the channel-normalisation helper
+# ---------------------------------------------------------------------------
+
+class TestEnsureHwc3Uint8:
+    """Unit tests for :func:`_ensure_hwc3_uint8`."""
+
+    def test_rgb_passthrough(self):
+        arr = np.zeros((5, 5, 3), dtype=np.uint8)
+        out = _ensure_hwc3_uint8(arr)
+        assert out.shape == (5, 5, 3)
+        assert out.dtype == np.uint8
+
+    def test_grayscale_2d_expanded(self):
+        arr = np.full((5, 5), 128, dtype=np.uint8)
+        out = _ensure_hwc3_uint8(arr)
+        assert out.shape == (5, 5, 3)
+        assert out.dtype == np.uint8
+        assert np.all(out[:, :, 0] == 128)
+        assert np.all(out[:, :, 1] == 128)
+        assert np.all(out[:, :, 2] == 128)
+
+    def test_rgba_alpha_dropped(self):
+        arr = np.zeros((5, 5, 4), dtype=np.uint8)
+        arr[:, :, :3] = 42
+        out = _ensure_hwc3_uint8(arr)
+        assert out.shape == (5, 5, 3)
+        assert np.all(out == 42)
+
+    def test_float_cast_to_uint8(self):
+        arr = np.full((3, 3, 3), 200.0, dtype=np.float32)
+        out = _ensure_hwc3_uint8(arr)
+        assert out.dtype == np.uint8
+
+    def test_unsupported_channel_count_raises(self):
+        arr = np.zeros((3, 3, 2), dtype=np.uint8)
+        with pytest.raises(TypeError, match="Unsupported channel count"):
+            _ensure_hwc3_uint8(arr)
+
+    def test_unsupported_ndim_raises(self):
+        arr = np.zeros((3,), dtype=np.uint8)
+        with pytest.raises(TypeError, match="Unsupported array shape"):
+            _ensure_hwc3_uint8(arr)
+
+    def test_non_array_raises(self):
+        with pytest.raises(TypeError, match="Expected a numpy.ndarray"):
+            _ensure_hwc3_uint8("not an array")  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# OCREngine – preprocess path produces 3-channel output (regression for #6)
+# ---------------------------------------------------------------------------
+
+class TestOCREnginePreprocessChannelNormalisation:
+    """Regression tests: engine must call .ocr() with a (H,W,3) array even
+    when the preprocessing pipeline returns a 2D grayscale array.
+
+    No real PaddleOCR required – everything is monkeypatched.
+    """
+
+    def _make_engine(self, monkeypatch, fake_ocr_instance, *, preprocess_image=True):
+        import models.ocr.engine as engine_mod
+
+        class FakePaddleOCR:
+            def __init__(self, **kwargs):
+                pass
+
+        monkeypatch.setattr(engine_mod, "_PaddleOCR", FakePaddleOCR)
+        monkeypatch.setattr(engine_mod, "_PADDLEOCR_AVAILABLE", True)
+
+        from models.ocr.engine import OCREngine
+        engine = OCREngine(preprocess_image=preprocess_image)
+        engine._ocr = fake_ocr_instance
+        return engine
+
+    @staticmethod
+    def _capturing_fake_ocr():
+        calls = []
+
+        class FakeOCR:
+            def ocr(self, img, **kwargs):
+                calls.append(img)
+                return []
+
+        return FakeOCR(), calls
+
+    def test_preprocess_grayscale_output_expanded_to_3ch(self, monkeypatch):
+        """When preprocess() returns a 2D array, engine must convert to (H,W,3)."""
+        import models.ocr.engine as engine_mod
+
+        # Stub preprocess to return a 2D grayscale array (as the real pipeline does).
+        monkeypatch.setattr(engine_mod, "preprocess", lambda img, **kw: np.full((8, 8), 200, dtype=np.uint8))
+
+        fake_ocr, calls = self._capturing_fake_ocr()
+        engine = self._make_engine(monkeypatch, fake_ocr, preprocess_image=True)
+
+        engine.extract(np.zeros((8, 8, 3), dtype=np.uint8))
+
+        assert len(calls) == 1
+        assert calls[0].ndim == 3, "ocr() must receive a 3D array"
+        assert calls[0].shape[2] == 3, "ocr() must receive a 3-channel array"
+        assert calls[0].dtype == np.uint8
+
+    def test_preprocess_rgba_output_converted_to_3ch(self, monkeypatch):
+        """When preprocess() returns a (H,W,4) RGBA array, engine drops alpha."""
+        import models.ocr.engine as engine_mod
+
+        monkeypatch.setattr(engine_mod, "preprocess", lambda img, **kw: np.zeros((8, 8, 4), dtype=np.uint8))
+
+        fake_ocr, calls = self._capturing_fake_ocr()
+        engine = self._make_engine(monkeypatch, fake_ocr, preprocess_image=True)
+
+        engine.extract(np.zeros((8, 8, 3), dtype=np.uint8))
+
+        assert len(calls) == 1
+        assert calls[0].shape == (8, 8, 3)
+
+    def test_ocr_always_receives_3ch_ndarray(self, monkeypatch):
+        """Regardless of preprocess output, ocr() must be called with (H,W,3)."""
+        import models.ocr.engine as engine_mod
+
+        # preprocess returns binary grayscale (the real behaviour)
+        monkeypatch.setattr(engine_mod, "preprocess", lambda img, **kw: np.zeros((6, 6), dtype=np.uint8))
+
+        fake_ocr, calls = self._capturing_fake_ocr()
+        engine = self._make_engine(monkeypatch, fake_ocr, preprocess_image=True)
+
+        engine.extract(np.zeros((6, 6, 3), dtype=np.uint8))
+
+        assert isinstance(calls[0], np.ndarray)
+        assert calls[0].ndim == 3
+        assert calls[0].shape[2] == 3
 
