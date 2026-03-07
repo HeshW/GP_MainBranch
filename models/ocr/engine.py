@@ -136,6 +136,45 @@ def _to_rgb_array(image: ImageInput) -> np.ndarray:
     )
 
 
+def _ensure_hwc3_uint8(img: np.ndarray) -> np.ndarray:
+    """Return *img* as a ``(H, W, 3)`` ``uint8`` array.
+
+    Handles the common cases produced by preprocessing pipelines:
+
+    * ``(H, W)`` – grayscale; each channel is replicated to form RGB.
+    * ``(H, W, 3)`` – already correct; returned as-is (dtype cast if needed).
+    * ``(H, W, 4)`` – RGBA; the alpha channel is dropped.
+
+    Raises
+    ------
+    TypeError
+        When *img* has an unsupported shape.
+    """
+    if not isinstance(img, np.ndarray):
+        raise TypeError(
+            f"Expected a numpy.ndarray, got {type(img).__name__}."
+        )
+    if img.ndim == 2:
+        img = np.stack([img, img, img], axis=2)
+    elif img.ndim == 3:
+        c = img.shape[2]
+        if c == 4:
+            img = img[:, :, :3]
+        elif c != 3:
+            raise TypeError(
+                f"Unsupported channel count {c} in array shape {img.shape}. "
+                "Expected 3 (RGB) or 4 (RGBA)."
+            )
+    else:
+        raise TypeError(
+            f"Unsupported array shape {img.shape}. "
+            "Expected (H, W) or (H, W, C)."
+        )
+    if img.dtype != np.uint8:
+        img = img.astype(np.uint8)
+    return img
+
+
 def _normalise_text(raw: str) -> str:
     """Collapse multiple whitespace characters and strip leading/trailing space."""
     return re.sub(r"\s+", " ", raw).strip()
@@ -450,6 +489,10 @@ class OCREngine:
                 ocr_input: np.ndarray = preprocess(img_array)
             else:
                 ocr_input = img_array
+
+            # Guarantee a (H, W, 3) uint8 array regardless of what the
+            # preprocessing pipeline produced (e.g. grayscale binary output).
+            ocr_input = _ensure_hwc3_uint8(ocr_input)
 
             try:
                 result = self._ocr.ocr(ocr_input, cls=True)
