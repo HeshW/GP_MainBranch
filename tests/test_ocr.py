@@ -395,3 +395,82 @@ class TestOCREngineInit:
         with pytest.raises(ImportError, match="PaddleOCR is not installed"):
             OCREngine()
 
+
+# ---------------------------------------------------------------------------
+# OCREngine – extract() cls kwarg compatibility
+# ---------------------------------------------------------------------------
+
+class TestOCREngineExtractClsCompat:
+    """Tests for OCREngine.extract() cls-argument fallback – no real PaddleOCR required."""
+
+    def _make_engine(self, monkeypatch, fake_ocr_instance):
+        """Return an OCREngine whose internal _ocr is *fake_ocr_instance*."""
+        import models.ocr.engine as engine_mod
+
+        class FakePaddleOCR:
+            def __init__(self, **kwargs):
+                pass
+
+        monkeypatch.setattr(engine_mod, "_PaddleOCR", FakePaddleOCR)
+        monkeypatch.setattr(engine_mod, "_PADDLEOCR_AVAILABLE", True)
+
+        from models.ocr.engine import OCREngine
+        engine = OCREngine(preprocess_image=False)
+        engine._ocr = fake_ocr_instance
+        return engine
+
+    def test_cls_accepted_called_with_cls_true(self, monkeypatch, tmp_path):
+        """Case A: when .ocr() accepts cls, it is called with cls=True."""
+        calls = []
+
+        class FakeOCR:
+            def ocr(self, img, cls=None):
+                calls.append({"img": img, "cls": cls})
+                return []  # empty result – no text
+
+        img = tmp_path / "img.png"
+        img.write_bytes(b"")
+
+        engine = self._make_engine(monkeypatch, FakeOCR())
+        engine.extract(str(img))
+
+        assert len(calls) == 1
+        assert calls[0]["cls"] is True
+
+    def test_cls_rejected_fallback_without_cls(self, monkeypatch, tmp_path):
+        """Case B: when .ocr() raises TypeError for cls, it is retried without cls."""
+        calls = []
+
+        class FakeOCR:
+            def ocr(self, img, **kwargs):
+                calls.append(kwargs)
+                if "cls" in kwargs:
+                    raise TypeError(
+                        "PaddleOCR.predict() got an unexpected keyword argument 'cls'"
+                    )
+                return []  # fallback call succeeds
+
+        img = tmp_path / "img.png"
+        img.write_bytes(b"")
+
+        engine = self._make_engine(monkeypatch, FakeOCR())
+        engine.extract(str(img))
+
+        assert len(calls) == 2, "Expected two .ocr() calls (first with cls, then without)"
+        assert "cls" in calls[0], "First call should include cls"
+        assert "cls" not in calls[1], "Second (fallback) call must omit cls"
+
+    def test_unrelated_type_error_is_wrapped_as_runtime_error(self, monkeypatch, tmp_path):
+        """Case C: a TypeError unrelated to cls propagates as RuntimeError."""
+
+        class FakeOCR:
+            def ocr(self, img, **kwargs):
+                raise TypeError("some other problem")
+
+        img = tmp_path / "img.png"
+        img.write_bytes(b"")
+
+        engine = self._make_engine(monkeypatch, FakeOCR())
+        with pytest.raises(RuntimeError, match="PaddleOCR failed to process"):
+            engine.extract(str(img))
+

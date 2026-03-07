@@ -141,6 +141,18 @@ preventing false positives from reference ranges printed nearby.
 All functions accept a file path (`str`/`Path`) **or** a NumPy array so
 they can be chained.
 
+## PaddleOCR Runtime API Compatibility
+
+Different PaddleOCR versions expose slightly different calling conventions.
+`OCREngine.extract()` handles this transparently:
+
+- It first attempts `ocr(input, cls=True)` (the standard call with angle-classifier enabled).
+- If that raises `TypeError: … unexpected keyword argument 'cls'` (seen with certain
+  PaddleOCR versions), it automatically retries with `ocr(input)` (no `cls`).
+- All other errors are re-raised as `RuntimeError`.
+
+No code changes are needed when upgrading or downgrading PaddleOCR.
+
 ## Dependencies
 
 | Package | Purpose |

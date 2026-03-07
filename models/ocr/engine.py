@@ -365,7 +365,15 @@ class OCREngine:
             else:
                 ocr_input = str(path)
 
-            result = self._ocr.ocr(ocr_input, cls=True)
+            try:
+                result = self._ocr.ocr(ocr_input, cls=True)
+            except TypeError as exc:
+                if "unexpected keyword argument 'cls'" in str(exc):
+                    # Older/newer PaddleOCR versions may not accept cls at call
+                    # time; retry without it.
+                    result = self._ocr.ocr(ocr_input)
+                else:
+                    raise
         except Exception as exc:
             raise RuntimeError(
                 f"PaddleOCR failed to process '{path}': {exc}"
