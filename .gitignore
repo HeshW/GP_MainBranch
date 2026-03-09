@@ -4,6 +4,8 @@ __pycache__/
 *$py.class
 venv/
 .venv/
+.venv311/
+.venv311_clean
 .env
 
 # AI Models & Data (Too large for Git)
