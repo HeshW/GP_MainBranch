@@ -60,6 +60,7 @@ Last updated: 2026-03-16
   - Added OCR smoke runner:
     - `scripts/run_ocr_smoke.py`
   - Moved runtime logs into `logs/` and removed redundant helper `scripts/_print_raw_text.py`.
+  - Moved OCR helper scripts into `models/ocr/scripts/` and added editable `models/ocr/synonyms_v15.json` template.
 - OCR logic currently implemented:
   - Multi-pass lab extraction strategy in `models/ocr/engine.py`:
     1. Full normalized-text pass

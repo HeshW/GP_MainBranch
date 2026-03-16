@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Compare installed packages in the active environment against a requirements file.
 
-Usage:
-    python scripts/check_env_mismatch.py --requirements requirements.txt
-    python scripts/check_env_mismatch.py --requirements requirements-runtime.txt
+This script is moved into models/ocr/scripts; it discovers the repo root so the
+default requirements path resolves correctly when run from the package.
 """
-
 from __future__ import annotations
 
 import argparse
@@ -15,6 +13,18 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
+from pathlib import Path
+
+
+def find_repo_root(start: Path) -> Path:
+    for p in [start] + list(start.parents):
+        if (p / 'requirements.txt').exists() or (p / '.git').exists() or (p / 'README.md').exists():
+            return p
+    return start.parents[-1]
+
+
+repo_root = find_repo_root(Path(__file__).resolve())
+sys.path.insert(0, str(repo_root))
 
 
 @dataclass
@@ -59,11 +69,6 @@ def get_installed() -> Dict[str, str]:
 
 
 def cmp_version(a: str, b: str) -> Optional[int]:
-    """Best-effort version comparison.
-
-    Returns:
-        -1 if a < b, 0 if a == b, 1 if a > b, None if comparison failed.
-    """
     try:
         from packaging.version import Version  # type: ignore
 
@@ -107,7 +112,7 @@ def satisfies(installed: str, op: Optional[str], expected: Optional[str]) -> Opt
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check env package mismatch against requirements")
-    parser.add_argument("--requirements", default="requirements.txt", help="Path to requirements file")
+    parser.add_argument("--requirements", default=str(repo_root / "requirements.txt"), help="Path to requirements file")
     args = parser.parse_args()
 
     try:
