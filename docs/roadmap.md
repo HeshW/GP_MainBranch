@@ -1,7 +1,5 @@
-# GP_MainBranch — Roadmap (moved to /docs)
+# GP_MainBranch — Roadmap
 Date: 2026-03-16
-
-This file was moved from the repository root into `docs/` for clarity.
 
 Overview
 - Purpose: End-to-end system to ingest pathology/lab documents, extract structured data (OCR), reason about findings (Diagnosis), recommend therapies (Therapy), and expose a human-friendly UI. A Manager (LLM) orchestrates model calls, validation, and outputs.

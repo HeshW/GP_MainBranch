@@ -1,8 +1,6 @@
-# GP Project State (moved to /docs)
+# GP Project State
 
 Last updated: 2026-03-16
-
-This file was moved from the repository root into `docs/` for clarity and now documents the current verified state and next steps.
 
 Environment
 - Active project virtual environment: `.venv` (Python 3.11.9)
@@ -60,4 +58,4 @@ Next immediate actions
 5. Add a loader to externalise `_RULES` into a config file (YAML/JSON) and add schema validation.
 6. Prepare RAG index-building scripts and an opt-in integration job for heavy-path tests (requires separate CI runner or gated job).
 
-If anything was moved or removed inadvertently, restore from git history (contact me for restore commands).
+
