@@ -28,7 +28,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
 
@@ -352,6 +352,10 @@ class EvidenceMapper:
 # All imports are guarded so the lightweight path has zero heavy deps.
 # ---------------------------------------------------------------------------
 
+if TYPE_CHECKING:
+    import numpy as np
+
+
 class ClinicalBERTEmbedder:
     """Encodes text to 768-dim vectors using ``emilyalsentzer/Bio_ClinicalBERT``.
 
@@ -362,9 +366,13 @@ class ClinicalBERTEmbedder:
 
     def __init__(self, device: Optional[str] = None) -> None:
         try:
-            import torch
-            from transformers import AutoModel, AutoTokenizer
-        except ImportError as exc:
+            import importlib
+
+            torch = importlib.import_module("torch")
+            transformers = importlib.import_module("transformers")
+            AutoModel = getattr(transformers, "AutoModel")
+            AutoTokenizer = getattr(transformers, "AutoTokenizer")
+        except Exception as exc:  # pragma: no cover - missing optional deps
             raise ImportError(
                 "ClinicalBERTEmbedder requires 'torch' and 'transformers'. "
                 "Install them with:  pip install torch transformers"
@@ -438,16 +446,19 @@ class MedicalCaseSearcher:
 
     def __init__(self, index_dir: Path) -> None:
         try:
-            import faiss
+            import importlib
+
+            faiss = importlib.import_module("faiss")
             import pickle
-        except ImportError as exc:
+        except Exception as exc:  # pragma: no cover - optional dep
             raise ImportError(
                 "MedicalCaseSearcher requires 'faiss-cpu'. "
                 "Install with:  pip install faiss-cpu"
             ) from exc
 
         index_dir = Path(index_dir)
-        self.index = faiss.read_index(str(index_dir / "medical_cases.index"))
+        self._faiss = faiss
+        self.index = self._faiss.read_index(str(index_dir / "medical_cases.index"))
         with open(index_dir / "metadata_mapping.pkl", "rb") as fh:
             self.metadata = pickle.load(fh)
         logger.info("FAISS index loaded: %d cases", self.index.ntotal)
@@ -458,11 +469,10 @@ class MedicalCaseSearcher:
         Each result is a dict with keys ``similarity``, ``pathology``,
         ``symptoms``, and ``patient_id``.
         """
-        import faiss
         import numpy as np
 
         q = query_embedding.reshape(1, -1).astype("float32")
-        faiss.normalize_L2(q)
+        self._faiss.normalize_L2(q)
         scores, indices = self.index.search(q, k)
 
         results = []
@@ -502,8 +512,10 @@ class MedicalRAGAssistant:
         model_name: str = "gemini-2.5-flash",
     ) -> None:
         try:
-            import google.generativeai as genai
-        except ImportError as exc:
+            import importlib
+
+            genai = importlib.import_module("google.generativeai")
+        except Exception as exc:  # pragma: no cover - optional dep
             raise ImportError(
                 "MedicalRAGAssistant requires 'google-generativeai'. "
                 "Install with:  pip install google-generativeai"
@@ -660,7 +672,17 @@ class DiagnosisEngine:
             ``retrieved_cases``  *(RAG only)*
                 Top-k similar cases from the FAISS index.
         """
-        labs = report.get("labs") or {}
+        if not isinstance(report, dict):
+            raise TypeError(
+                "report must be a dict as returned by OCREngine.extract()"
+            )
+
+        labs = report.get("labs", {})
+        if labs is None:
+            labs = {}
+        if not isinstance(labs, dict):
+            raise TypeError("report['labs'] must be a dict mapping lab keys to values")
+
         findings = _diagnose_from_labs(labs)
 
         # Build summary
