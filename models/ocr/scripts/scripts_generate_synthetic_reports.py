@@ -36,10 +36,19 @@ import random
 import string
 import textwrap
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+if TYPE_CHECKING:
+    # Optional heavy deps are imported only for type-checkers to avoid linter
+    # unresolved-import warnings in editors that don't use the project's venv.
+    try:  # pragma: no cover - typing-only
+        import barcode  # type: ignore
+        import qrcode  # type: ignore
+    except Exception:
+        pass
 
 # Optional imports
 try:
@@ -146,7 +155,7 @@ def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
-def _font_text_size(font: ImageFont.FreeTypeFont, text: str) -> Tuple[int, int]:
+def _font_text_size(font: ImageFont.ImageFont, text: str) -> Tuple[int, int]:
     """Pillow-version-safe text sizing helper."""
     try:
         l, t, r, b = font.getbbox(text)
@@ -206,7 +215,7 @@ def draw_multiline(
     draw: ImageDraw.ImageDraw,
     xy: Tuple[int, int],
     text: str,
-    font: ImageFont.FreeTypeFont,
+    font: ImageFont.ImageFont,
     max_width: int,
     spacing: int = 4,
 ) -> Tuple[str, Tuple[int, int, int, int]]:
@@ -475,7 +484,7 @@ def apply_augmentations(img: Image.Image, augment_level: float = 0.5) -> Image.I
 # ------------------------
 
 
-def build_fonts(font_dir: Optional[str]) -> Dict[str, ImageFont.FreeTypeFont]:
+def build_fonts(font_dir: Optional[str]) -> Dict[str, ImageFont.ImageFont]:
     # Try to find some reasonable fonts; user may pass a directory with .ttf files
     fonts = {}
     # default sizes
