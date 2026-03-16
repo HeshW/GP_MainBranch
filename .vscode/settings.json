@@ -2,6 +2,7 @@
   // Hide stale diagnostics for deleted workflow files
   "problems.exclude": {
     "**/.github/workflows/ci.yml": true,
-    "**/.github/workflows/integration.yml": true
+    "**/.github/workflows/integration.yml": true,
+    "**/.github/workflows/**": true
   }
 }
