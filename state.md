@@ -88,6 +88,17 @@ Last updated: 2026-03-16
 - Hardware/acceleration:
   - No GPU requirement is currently assumed; default flow targets CPU compatibility unless explicitly configured otherwise.
 
+## Universal Rules
+
+- **Commits:** Keep all commits local until you explicitly request a push to remote.
+- **State & Roadmap:** After completing any task, update `state.md` and `roadmap.md` with a short verification note and commit locally.
+- **Session Memory:** Append a short note to `/memories/session/ocr_finalize_todos.md` for traceability between sessions.
+- **Logs & Artifacts:** Store runtime logs and temporary outputs under `logs/`; never commit large model files or raw fixtures containing PHI.
+- **Environment:** Use a non-conda Python 3.11 venv and the pinned runtime deps (`numpy`, `opencv-python`, `paddlepaddle`, `paddleocr`) documented in `requirements-*`.
+- **Integration Tests:** Guard heavy/integration tests behind `RUN_OCR_INTEGRATION=1` (or equivalent) to avoid CI flakiness.
+- **Synonyms & Ingestion:** Treat `GPProject_OC_Version15.txt` as guidance only; only apply synonyms to `models/ocr/synonyms_v15.json` after manual review.
+- **Data Privacy:** Sanitize test fixtures to remove PHI before adding to the repo; redact logs when sharing externally.
+
 ## Next Steps Checklist
 
 - [x] Activate new `.venv` and upgrade base tooling (`pip`, `setuptools`, `wheel`).
