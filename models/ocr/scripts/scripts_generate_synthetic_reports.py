@@ -52,15 +52,15 @@ if TYPE_CHECKING:
 
 # Optional imports
 try:
-    import barcode  # python-barcode
-    from barcode.writer import ImageWriter
+    import barcode  # type: ignore # python-barcode
+    from barcode.writer import ImageWriter # type: ignore
 
     BARCODE_AVAILABLE = True
 except Exception:
     BARCODE_AVAILABLE = False
 
 try:
-    import qrcode
+    import qrcode # type: ignore
 
     QRCODE_AVAILABLE = True
 except Exception:
