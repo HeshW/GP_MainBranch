@@ -7,7 +7,10 @@ SYNONYM_MAP normalises the many common spellings/abbreviations found on
 lab report printouts to the same canonical key.
 """
 
+import json
+import logging
 import re
+from pathlib import Path
 from typing import Dict, Pattern
 
 # ---------------------------------------------------------------------------
@@ -71,6 +74,32 @@ SYNONYM_MAP: Dict[str, str] = {
     "calcium": "calcium",
     "ca": "calcium",
 }
+
+
+# --- optional external synonyms (ingested from GPProject_OC_Version15.txt) ---
+_SYN_JSON = Path(__file__).resolve().parent / "synonyms_v15.json"
+if _SYN_JSON.exists():
+    try:
+        with _SYN_JSON.open("r", encoding="utf-8") as f:
+            _data = json.load(f)
+            _aliases = _data.get("aliases", {}) or {}
+            # merge: do not overwrite existing mappings by default
+            for a, c in _aliases.items():
+                a_key = a.strip().lower()
+                c_key = c.strip().lower()
+                if not a_key:
+                    continue
+                if a_key in SYNONYM_MAP and SYNONYM_MAP[a_key] != c_key:
+                    logging.warning(
+                        "synonyms_v15.json alias %r maps to %r but existing maps to %r; keeping existing",
+                        a_key,
+                        c_key,
+                        SYNONYM_MAP[a_key],
+                    )
+                    continue
+                SYNONYM_MAP[a_key] = c_key
+    except Exception as exc:  # pragma: no cover - defensive
+        logging.exception("failed to load synonyms_v15.json: %s", exc)
 
 # ---------------------------------------------------------------------------
 # Per-canonical-key capture patterns
