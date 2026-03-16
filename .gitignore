@@ -15,6 +15,9 @@ venv/
 *.npy
 *.pkl
 data/samples/*
+# Dataset directories (do not commit large datasets or PHI)
+data/kaggleocrset/
+data/ocrdata/
 
 # OS files
 .DS_Store
