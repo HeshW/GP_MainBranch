@@ -30,6 +30,13 @@ Recent progress (delta — 2026-03-16)
 - Verified: smoke run against `data/labreport1test.png` produced fields/sections and `labs_count: 0` (no lab values in that image).
 - Repository hygiene: large dataset directories were added to `.gitignore`; tracked sensitive dataset files were purged from history.
 
+Additional recent progress (delta — 2026-03-16, continued)
+- Diagnosis refactor: prototype notebook refactored into `models/diagnosis/diagnosisengine.py` implementing a lightweight rule-based engine and optional RAG components (lazy-loaded).  The module exposes a `DiagnosisEngine` class and a convenience `diagnose()` function.
+- Manager adapter: `manager/diagnosis_adapter.py` was added to map `OCREngine.extract()` output into the diagnosis engine and provide a small CLI for image-driven diagnosis.
+- Tests & validation: unit tests for the diagnosis engine were added at `tests/test_diagnosis_engine.py` and the full test suite passed locally (`89 passed, 101 warnings`).
+- Input validation & docs: `DiagnosisEngine.diagnose()` now validates `report` and `report['labs']` types; short usage notes added at `docs/DIAGNOSIS_ENGINE.md`.
+- Editor ergonomics: heavy ML/LLM dependencies (torch/transformers/faiss/google-generativeai) are now lazy-imported to avoid forcing installs during lightweight use and to reduce editor/linter diagnostics.
+
 Cross-cutting notes
 - Use non-conda Python 3.11 `.venv` with pinned runtime deps (see `docs/ENV_SETUP.md`).
 - Guard heavy OCR integration tests with `RUN_OCR_INTEGRATION=1` to avoid CI flakiness.
@@ -39,3 +46,5 @@ Next actions (short)
 1. Add opt-in integration tests validating generated `data/ocrdata/` samples vs `expected_labs`.
 2. Populate `models/ocr/synonyms_v15.json` after manual review to improve lab coverage.
 3. Implement barcode validation and CLI output JSON for batch processing.
+4. Expand unit test coverage for `DiagnosisEngine` (rule boundaries, unit variants, malformed inputs).
+5. Externalise `_RULES` into a configurable YAML/JSON file and add loader + schema validation.

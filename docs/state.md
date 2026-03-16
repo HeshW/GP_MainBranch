@@ -12,6 +12,16 @@ Project status summary (2026-03-16)
 - Focus: Dataset validation and OCR pipeline verification.
 - Unit tests: `pytest` run locally → `85 passed, 101 warnings` (Paddle/proto deprecation warnings non-blocking).
 
+Recent engineering updates (2026-03-16)
+- Diagnosis: prototype notebook refactored into `models/diagnosis/diagnosisengine.py`. The refactor provides:
+  - Lightweight rule-based analysis (`_RULES` + `_diagnose_from_labs`).
+  - Optional RAG path (ClinicalBERT + FAISS + Gemini) guarded by lazy imports and opt-in flags.
+  - Public API: module-level `diagnose()` convenience function and `DiagnosisEngine` class for stateful use.
+- Manager adapter: `manager/diagnosis_adapter.py` added to bridge OCR output to the diagnosis engine and provide a small CLI entrypoint.
+- Tests: new tests added in `tests/test_diagnosis_engine.py`; full test suite now passes locally (`89 passed, 101 warnings`).
+- Validation and docs: `DiagnosisEngine.diagnose()` validates inputs and `docs/DIAGNOSIS_ENGINE.md` documents usage and expected input shape.
+- Code hygiene: heavy ML dependencies are imported at runtime only (lazy imports) so the lightweight path is usable without installing torch/faiss/Gemini SDKs.
+
 Key implemented items
 - OCR pipeline
   - `OCREngine` (models/ocr/engine.py): multi-pass parsing, `raw_ocr` output, per-lab `confidence`, `warnings` aggregation.
@@ -46,5 +56,8 @@ Next immediate actions
 1. Add integration test for `data/ocrdata/` vs `expected_labs` (opt-in).
 2. Manually review `models/ocr/synonyms_v15.json` and extend lab synonyms.
 3. Add barcode validation CLI and batch JSON output.
+4. Expand `DiagnosisEngine` unit tests to cover rule boundaries, unit/scale variants, and malformed inputs.
+5. Add a loader to externalise `_RULES` into a config file (YAML/JSON) and add schema validation.
+6. Prepare RAG index-building scripts and an opt-in integration job for heavy-path tests (requires separate CI runner or gated job).
 
 If anything was moved or removed inadvertently, restore from git history (contact me for restore commands).
