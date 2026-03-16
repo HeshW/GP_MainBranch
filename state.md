@@ -59,6 +59,7 @@ Last updated: 2026-03-16
     - OCR smoke run on `data/labreport1test.png` completed (`result keys: labs/raw_text/warnings`)
   - Added OCR smoke runner:
     - `scripts/run_ocr_smoke.py`
+  - Moved runtime logs into `logs/` and removed redundant helper `scripts/_print_raw_text.py`.
 - OCR logic currently implemented:
   - Multi-pass lab extraction strategy in `models/ocr/engine.py`:
     1. Full normalized-text pass
