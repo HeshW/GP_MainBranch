@@ -11,15 +11,14 @@ High-level components
 - Model D — Manager (LLM / Orchestrator): coordinates models, persistence, APIs, and report synthesis.
 - Frontend & Backend: minimal UI for review + backend services (API, auth, job queue, persistence).
 
-Milestones (short list)
-- M1 OCR stabilization — DONE (2026-03-16): `OCREngine` improvements, `fields.py`, smoke scripts, and local smoke validation.
-- M2 Parsing & lab extraction tuning — DONE (2026-03-16): `LAB_PATTERNS`, `synonyms_v15.json`, confidence aggregation, `raw_ocr` output.
-- M3 Barcode & metadata validation + CLI — IN PROGRESS: `run_ocr_smoke.py` present; barcode validation planned.
-- M4 Diagnosis scaffold — TODO: rule-based engine + tests.
-- M5 Therapy scaffold — TODO: rule mappings and safety checks.
-- M6 Manager & Backend orchestration — TODO.
-- M7 Frontend — TODO.
-- M8 Integration, CI, Docs — PARTIAL: unit CI present; heavy OCR integration guarded and workflows were temporarily removed to address editor diagnostics and privacy concerns.
+Milestones (current focus)
+- M1 — OCR stabilization (COMPLETE): core OCR parsing, lab extraction, `OCREngine.extract()` shape stabilised.
+- M2 — Parsing & lab extraction (COMPLETE): pattern/synonym work and confidence aggregation.
+- M3 — CLI & metadata validation (IN PROGRESS): batch CLI, barcode checks and structured JSON output.
+- M4 — Diagnosis (IN PROGRESS → PARTIAL): rule-based `DiagnosisEngine` implemented, unit tests added; next: broaden test coverage and config externalisation.
+- M5 — Therapy (PLANNED): scaffold therapy mappings and safety checks.
+- M6 — Manager orchestrator (PLANNED): define adapter contract, APIs, and orchestration flows.
+- M7 — Integration & CI (PLANNED): opt-in heavy integration jobs (FAISS/LLM) and separation of lightweight CI.
 
 Recent progress (delta — 2026-03-16)
 - Synthetic generator hardened: deterministic `expected_labs`, improved font sizing, and dataset generation (`data/ocrdata/`).
@@ -40,9 +39,9 @@ Cross-cutting notes
 - Guard heavy OCR integration tests with `RUN_OCR_INTEGRATION=1` to avoid CI flakiness.
 - Keep PHI out of committed fixtures; use `logs/` for temporary outputs and never commit raw PHI.
 
-Next actions (short)
-1. Add opt-in integration tests validating generated `data/ocrdata/` samples vs `expected_labs`.
-2. Populate `models/ocr/synonyms_v15.json` after manual review to improve lab coverage.
-3. Implement barcode validation and CLI output JSON for batch processing.
-4. Expand unit test coverage for `DiagnosisEngine` (rule boundaries, unit variants, malformed inputs).
-5. Externalise `_RULES` into a configurable YAML/JSON file and add loader + schema validation.
+Next actions (priority)
+1. Expand `DiagnosisEngine` unit tests (rule boundaries, unit/scale normalization, malformed inputs).
+2. Input normalisation: canonicalise units and numeric scales in `report['labs']`.
+3. Externalise `_RULES` into a config (YAML/JSON) + add loader and schema validation.
+4. Add CLI barcode validation and batch JSON output.
+5. Prepare opt-in RAG integration (FAISS index build + gated CI job).
