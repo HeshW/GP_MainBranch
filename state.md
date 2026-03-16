@@ -17,9 +17,9 @@ Last updated: 2026-03-16
 - Legacy environments:
   - `.venv`, `.venv311`, and `.venv311_clean` were archived under `.old_venvs/`
 - Dependency profiles now in repo:
-  - `requirements.txt`: broad/default project dependencies
-  - `requirements-test.txt`: lightweight test dependencies (no Paddle runtime)
-  - `requirements-runtime.txt`: pinned OCR runtime profile based on prior validated handoff
+  - `requirements.txt`: unified entrypoint (delegates to runtime + test requirements)
+  - `requirements-test.txt`: test-only dependencies without runtime binary overrides
+  - `requirements-runtime.txt`: pinned OCR runtime/inference profile
     - Note: install `paddleocr==2.7.0.3` separately with `--no-deps`
 
 ## Project Architecture
@@ -51,16 +51,17 @@ Last updated: 2026-03-16
     - `requirements-test.txt`
     - `requirements-runtime.txt`
   - Added mismatch diagnostic script:
-    - `scripts/check_env_mismatch.py`
+    - `models/ocr/scripts/check_env_mismatch.py`
   - Installed and validated fresh `.venv` environment end-to-end:
     - `pytest tests/test_ocr.py -q --disable-warnings` -> `82 passed`
     - Runtime import check passed for Python 3.11.9, `numpy 1.23.5`, `cv2 4.6.0`, `paddle 2.6.2`
     - PaddleOCR initialized successfully after installing runtime extras
     - OCR smoke run on `data/labreport1test.png` completed (`result keys: labs/raw_text/warnings`)
   - Added OCR smoke runner:
-    - `scripts/run_ocr_smoke.py`
+    - `models/ocr/scripts/run_ocr_smoke.py`
   - Moved runtime logs into `logs/` and removed redundant helper `scripts/_print_raw_text.py`.
   - Moved OCR helper scripts into `models/ocr/scripts/` and added editable `models/ocr/synonyms_v15.json` template.
+  - Populated `models/ocr/synonyms_v15.json` with an initial curated alias set to improve lab coverage (glucose, hemoglobin/Hgb, WBC, RBC, platelets, creatinine, BUN/urea, electrolytes, AST/ALT, ALP, lipids).
 - OCR logic currently implemented:
   - Multi-pass lab extraction strategy in `models/ocr/engine.py`:
     1. Full normalized-text pass
@@ -69,6 +70,7 @@ Last updated: 2026-03-16
   - Duplicate handling: last match wins with warning.
   - Unit capture includes forms like `%`, `mg/dL`, `10^3/µL`, `x10^3/uL`.
   - Output includes `labs`, `raw_text`, and `warnings`, with `source_match` per lab item.
+  - `labs` entries now include a `confidence` float derived from `raw_ocr` when available; low/critical confidence values append warnings to `warnings`.
 
 ## Known Constraints
 
@@ -113,6 +115,45 @@ Last updated: 2026-03-16
 - [x] If Paddle issues persist, install only missing runtime extras incrementally and rerun checks.
 - [ ] Once stable, optionally remove `.old_venvs/` to reclaim disk space.
 
+## Post-verification status & next actions (2026-03-16)
+
+- Verification run: executed `models/ocr/scripts/_print_raw_text_plus_fields.py` against `data/labreport1test.png` using the project's `.venv`.
+  - Outcome: successful OCR + parsing. See `logs/ocr_smoke_fields.json` for full JSON output.
+  - Observations: `fields` and `sections` are extracted correctly; `labs_count` is 0 for this image (no lab-value matches found).
+
+- Immediate next actions:
+  1. Add a small integration test that asserts `fields` and `sections` keys exist for the sample image (tests/test_ocr_integration.py).
+  2. Manually review and populate `models/ocr/synonyms_v15.json` to improve lab label coverage before automated ingestion.
+  3. Extend the engine to optionally return `raw_ocr` (bboxes + confidences) so downstream confidence-driven filters can run.
+  4. Add CI guard `RUN_OCR_INTEGRATION=1` to avoid running heavy OCR in standard CI runs.
+
+- How to re-run verification locally (quick):
+
+```bash
+# Activate venv (Git Bash)
+source .venv/Scripts/activate
+
+# (recommended) install full runtime pins if not already
+python -m pip install -r requirements-runtime.txt
+
+# Run smoke script and capture output
+python -m models.ocr.scripts._print_raw_text_plus_fields data/labreport1test.png --raw > logs/ocr_smoke_fields.json 2>&1
+
+# Inspect results
+sed -n '1,200p' logs/ocr_smoke_fields.json
+```
+
+Add a short test and a quick PR for `synonyms_v15.json` updates once you approve the manual alias mappings.
+
+### Raw OCR added (2026-03-16)
+
+- Status: implemented — `OCREngine.extract()` now includes a `raw_ocr` list of items `{"text", "bbox", "confidence"}` when PaddleOCR provides them.
+- Tests: Added `tests/test_ocr_raw_ocr.py` (monkeypatched PaddleOCR) which verifies `raw_ocr` structure; the test completed successfully in the project `.venv`.
+- Smoke: `models/ocr/scripts/_print_raw_text_plus_fields.py` now reports `raw_ocr_count` for quick verification.
+ - Tests (delta): Added `tests/test_synonyms.py` (verifies curated synonyms merged into `SYNONYM_MAP`) and `tests/test_lab_confidence.py` (monkeypatched PaddleOCR verifies per-lab `confidence` aggregation).
+
+Next verification steps: run the unit test suite and, if desired, an integration smoke run against `data/labreport1test.png` once runtime deps are installed.
+
 ## Useful Commands
 
 ```bash
@@ -127,7 +168,40 @@ python -m pip install -r requirements-test.txt
 
 # Runtime pinned profile install
 python -m pip install -r requirements-runtime.txt
+python -m pip install --no-deps paddleocr==2.7.0.3
 
 # Mismatch check
 python scripts/check_env_mismatch.py --requirements requirements-runtime.txt
 ```
+
+## Finalization Delta (2026-03-16)
+
+- Rebuilt `.venv` from scratch and removed ABI mismatches by re-pinning the binary stack:
+  - `numpy==1.23.5`
+  - `scipy==1.15.3`
+  - `scikit-image==0.20.0`
+  - `opencv-python==4.6.0.66`
+  - `opencv-contrib-python==4.6.0.66`
+- Aligned dependency files to avoid future drift:
+  - `requirements.txt` now delegates to `requirements-runtime.txt` + `requirements-test.txt`.
+  - `requirements-test.txt` no longer upgrades NumPy/OpenCV.
+- Full test suite result after rebuild and OCR finalization:
+  - `85 passed, 101 warnings in 2.30s`
+- OCR production caveat:
+  - `pdf2docx` and `PyMuPDF<1.21.0` are optional PDF-path dependencies and can require heavy native builds on Windows; they are not required for current image-based OCR flows/tests.
+
+## Synthetic Dataset Verification Delta (2026-03-16)
+
+- Updated `models/ocr/scripts/scripts_generate_synthetic_reports.py` to generate OCR-validation-ready lab panels and ground truth labels:
+  - Added deterministic `Lab Results` block with parse-friendly lines for `glucose`, `hemoglobin`, `wbc`, and `platelets`.
+  - Added per-sample `expected_labs` payload into each annotation JSON.
+  - Switched lab panel rendering to line-by-line drawing (instead of wrapped paragraph rendering) to improve OCR reliability.
+  - Added Pillow compatibility sizing helper to support environments where `textsize`/`getsize` APIs differ.
+  - Improved default font behavior with TrueType fallback candidates and larger default font sizes for clearer OCR text.
+- Generated a new synthetic dataset under `data/ocrdata/`:
+  - Images: `data/ocrdata/images/report_00001.png` ... `report_00020.png`
+  - Annotations: `data/ocrdata/annotations/report_00001.json` ... `report_00020.json`
+- Random-sample OCR verification (4 generated samples) passed against `expected_labs` with value tolerance checks.
+- Full test suite re-run after generator changes:
+  - `85 passed, 101 warnings in 2.12s`
+

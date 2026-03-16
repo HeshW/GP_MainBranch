@@ -1,18 +1,39 @@
-# Runtime-pinned OCR stack (legacy-compatible profile)
-# Based on the validated handoff profile for this project.
+# Runtime-pinned OCR stack (inference profile)
 # Keep this separate from requirements-test.txt.
 #
 # Install note:
 # 1) Install this file first.
-# 2) Then install PaddleOCR without transitive deps to avoid PyMuPDF/pdf2docx SWIG builds:
+# 2) Then install PaddleOCR without transitive deps to avoid PyMuPDF/pdf2docx
+#    native build failures on Windows:
 #    python -m pip install --no-deps paddleocr==2.7.0.3
-
+#
+# Core ABI-sensitive stack
 numpy==1.23.5
+scipy==1.15.3
 opencv-python==4.6.0.66
-paddlepaddle==2.6.2
+opencv-contrib-python==4.6.0.66
 scikit-image==0.20.0
-Pillow
-requests
-PyYAML
-shapely
-pyclipper
+paddlepaddle==2.6.2
+
+# Inference-time PaddleOCR deps
+Pillow>=10.0.0
+requests>=2.31.0
+PyYAML>=6.0
+shapely>=2.0.0
+pyclipper>=1.3.0
+attrdict>=2.0.1
+beautifulsoup4>=4.12.0
+fire>=0.7.0
+fonttools>=4.24.0
+imgaug==0.4.0
+lmdb>=1.4.0
+lxml>=4.9.0
+openpyxl>=3.1.0
+premailer>=3.10.0
+python-docx>=1.1.0
+rapidfuzz>=3.0.0
+tqdm>=4.65.0
+
+# Optional PDF pathway (disabled by default due native build complexity):
+# - pdf2docx
+# - PyMuPDF<1.21.0

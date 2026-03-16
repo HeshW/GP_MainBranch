@@ -1,10 +1,34 @@
 {
   "aliases": {
-    "example alias": "example_canonical"
+    "glucose": "glucose",
+    "blood glucose": "glucose",
+    "glc": "glucose",
+    "hgb": "hemoglobin",
+    "hb": "hemoglobin",
+    "hemoglobin": "hemoglobin",
+    "wbc": "white blood cell count",
+    "rbc": "red blood cell count",
+    "platelets": "platelet count",
+    "plt": "platelet count",
+    "creatinine": "creatinine",
+    "crt": "creatinine",
+    "bun": "blood urea nitrogen",
+    "urea": "blood urea nitrogen",
+    "na": "sodium",
+    "k": "potassium",
+    "cl": "chloride",
+    "alt": "alanine aminotransferase",
+    "ast": "aspartate aminotransferase",
+    "alk phos": "alkaline phosphatase",
+    "alp": "alkaline phosphatase",
+    "tg": "triglycerides",
+    "cholesterol": "cholesterol",
+    "hdl": "hdl",
+    "ldl": "ldl"
   },
   "meta": {
-    "source": "GPProject_OC_Version15.txt",
-    "generated": "",
-    "count": 1
+    "source": "manual-curation",
+    "generated": "2026-03-16",
+    "count": 23
   }
 }

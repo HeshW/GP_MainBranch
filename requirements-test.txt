@@ -1,7 +1,5 @@
-# Test-only dependencies (lightweight, no Paddle runtime)
-# Use this for unit tests that do not require PaddleOCR initialization.
+# Test-only dependencies.
+# Keep this file free of runtime binary packages so it cannot override
+# `requirements-runtime.txt` pins (notably NumPy/OpenCV/Paddle).
 
-numpy>=1.26.4
-opencv-python-headless>=4.9.0.80
-Pillow>=10.3.0
 pytest>=8.1.1
