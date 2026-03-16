@@ -2,19 +2,26 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import argparse
 
-# Ensure repository root is importable when running this file directly.
-ROOT = Path(__file__).resolve().parents[1]
+
+def find_repo_root(start: Path) -> Path:
+    for p in [start] + list(start.parents):
+        if (p / 'requirements.txt').exists() or (p / '.git').exists() or (p / 'README.md').exists():
+            return p
+    return start.parents[-1]
+
+
+ROOT = find_repo_root(Path(__file__).resolve())
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import argparse
 from models.ocr import OCREngine
 
 
 def parse_args():
     p = argparse.ArgumentParser(description='Run a quick OCR smoke test')
-    p.add_argument('--image', '-i', default='data/labreport1test.png', help='Path to the test image')
+    p.add_argument('--image', '-i', default=str(Path('data') / 'labreport1test.png'), help='Path to the test image')
     p.add_argument('--raw', action='store_true', help='Also print full raw_text')
     return p.parse_args()
 
