@@ -1,0 +1,151 @@
+{
+  "image": "images\\report_00018.png",
+  "width": 1654,
+  "height": 2339,
+  "fields": {
+    "patient_name": {
+      "text": "Hassan Abdullah",
+      "bbox": [
+        249,
+        156,
+        626,
+        22
+      ]
+    },
+    "sex_age": {
+      "text": "Male / 2 year",
+      "bbox": [
+        1009,
+        156,
+        626,
+        28
+      ]
+    },
+    "referred_by": {
+      "text": "Prof. Dr. Khaled",
+      "bbox": [
+        209,
+        186,
+        626,
+        22
+      ]
+    },
+    "date": {
+      "text": "07/02/2020",
+      "bbox": [
+        959,
+        186,
+        626,
+        22
+      ]
+    },
+    "path_code": {
+      "text": "61",
+      "bbox": [
+        209,
+        220,
+        626,
+        22
+      ]
+    },
+    "vcode": {
+      "text": "H2L640DBA",
+      "bbox": [
+        959,
+        220,
+        626,
+        22
+      ]
+    },
+    "signature": {
+      "text": "Pathologist\nProf. Dr. R. Mansour",
+      "bbox": [
+        1255,
+        2160,
+        300,
+        60
+      ]
+    }
+  },
+  "sections": [
+    {
+      "label": "Lab Results",
+      "text": "Glucose: 106.4 mg/dL\nHGB: 11.2 g/dL\nWBC: 3.7 10^3/L\nPLT: 215.3 10^3/L",
+      "bbox": [
+        109,
+        311,
+        279,
+        112
+      ]
+    },
+    {
+      "label": "Clinical",
+      "text": "Few portal areas showed minimal lymphocytic infiltrates without plasma cell predominance. Intact architecture with minimal inflammatory reaction and no portal fibrosis. This picture is suggestive of a minimal drug-induced reaction. Cores of tissue measuring approximately 1.5 cm were prepared and stained.",
+      "bbox": [
+        109,
+        468,
+        961,
+        128
+      ]
+    },
+    {
+      "label": "Gross",
+      "text": "Cores of tissue measuring approximately 1.5 cm were prepared and stained. No pathological features to suggest autoimmune hepatitis.",
+      "bbox": [
+        109,
+        639,
+        1005,
+        64
+      ]
+    },
+    {
+      "label": "Microscopic",
+      "text": "No evidence of viral inclusions or granulomatous inflammation. No pathological features to suggest autoimmune hepatitis.",
+      "bbox": [
+        109,
+        753,
+        990,
+        64
+      ]
+    },
+    {
+      "label": "Diagnosis",
+      "text": "Intact architecture with minimal inflammatory reaction and no portal fibrosis. Cores of tissue measuring approximately 1.5 cm were prepared and stained. This picture is suggestive of a minimal drug-induced reaction. Examination revealed tissue sections with no evidence of significant fibrosis. Intact architecture with minimal inflammatory reaction and no portal fibrosis.",
+      "bbox": [
+        109,
+        867,
+        1022,
+        160
+      ]
+    },
+    {
+      "label": "Notes",
+      "text": "Cores of tissue measuring approximately 1.5 cm were prepared and stained. Examination revealed tissue sections with no evidence of significant fibrosis. Few portal areas showed minimal lymphocytic infiltrates without plasma cell predominance. Few portal areas showed minimal lymphocytic infiltrates without plasma cell predominance. No pathological features to suggest autoimmune hepatitis.",
+      "bbox": [
+        109,
+        1070,
+        991,
+        192
+      ]
+    }
+  ],
+  "expected_labs": {
+    "glucose": {
+      "value": 106.4,
+      "unit": "mg/dL"
+    },
+    "hemoglobin": {
+      "value": 11.2,
+      "unit": "g/dL"
+    },
+    "wbc": {
+      "value": 3.7,
+      "unit": "10^3/L"
+    },
+    "platelets": {
+      "value": 215.3,
+      "unit": "10^3/L"
+    }
+  },
+  "generated_at": "2026-03-16T11:56:55.469890Z"
+}

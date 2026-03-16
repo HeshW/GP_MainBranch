@@ -1,0 +1,151 @@
+{
+  "image": "images\\report_00009.png",
+  "width": 1654,
+  "height": 2339,
+  "fields": {
+    "patient_name": {
+      "text": "Youssef Kamal",
+      "bbox": [
+        249,
+        156,
+        626,
+        22
+      ]
+    },
+    "sex_age": {
+      "text": "Male / 81 year",
+      "bbox": [
+        1009,
+        156,
+        626,
+        28
+      ]
+    },
+    "referred_by": {
+      "text": "Prof. Dr. Khaled",
+      "bbox": [
+        209,
+        186,
+        626,
+        22
+      ]
+    },
+    "date": {
+      "text": "24/12/2019",
+      "bbox": [
+        959,
+        186,
+        626,
+        22
+      ]
+    },
+    "path_code": {
+      "text": "67",
+      "bbox": [
+        209,
+        220,
+        626,
+        22
+      ]
+    },
+    "vcode": {
+      "text": "VV76ASS7E",
+      "bbox": [
+        959,
+        220,
+        626,
+        22
+      ]
+    },
+    "signature": {
+      "text": "Pathologist\nProf. Dr. A. Shehab",
+      "bbox": [
+        1255,
+        2160,
+        300,
+        60
+      ]
+    }
+  },
+  "sections": [
+    {
+      "label": "Lab Results",
+      "text": "Glucose: 84.6 mg/dL\nHGB: 17.2 g/dL\nWBC: 6.5 10^3/L\nPLT: 369.5 10^3/L",
+      "bbox": [
+        109,
+        311,
+        263,
+        112
+      ]
+    },
+    {
+      "label": "Clinical",
+      "text": "This picture is suggestive of a minimal drug-induced reaction. This picture is suggestive of a minimal drug-induced reaction. Examination revealed tissue sections with no evidence of significant fibrosis. Mild elevated enzymes with negative viral markers. Liver biopsy. This picture is suggestive of a minimal drug-induced reaction.",
+      "bbox": [
+        109,
+        468,
+        951,
+        160
+      ]
+    },
+    {
+      "label": "Gross",
+      "text": "This picture is suggestive of a minimal drug-induced reaction. No evidence of viral inclusions or granulomatous inflammation. No evidence of viral inclusions or granulomatous inflammation.",
+      "bbox": [
+        109,
+        671,
+        977,
+        96
+      ]
+    },
+    {
+      "label": "Microscopic",
+      "text": "No evidence of viral inclusions or granulomatous inflammation. Intact architecture with minimal inflammatory reaction and no portal fibrosis. Examination revealed tissue sections with no evidence of significant fibrosis.",
+      "bbox": [
+        109,
+        817,
+        958,
+        96
+      ]
+    },
+    {
+      "label": "Diagnosis",
+      "text": "No evidence of viral inclusions or granulomatous inflammation. This picture is suggestive of a minimal drug-induced reaction. Mild elevated enzymes with negative viral markers. Liver biopsy. Examination revealed tissue sections with no evidence of significant fibrosis. No pathological features to suggest autoimmune hepatitis.",
+      "bbox": [
+        109,
+        963,
+        984,
+        160
+      ]
+    },
+    {
+      "label": "Notes",
+      "text": "No pathological features to suggest autoimmune hepatitis. Few portal areas showed minimal lymphocytic infiltrates without plasma cell predominance.",
+      "bbox": [
+        109,
+        1166,
+        1058,
+        64
+      ]
+    }
+  ],
+  "expected_labs": {
+    "glucose": {
+      "value": 84.6,
+      "unit": "mg/dL"
+    },
+    "hemoglobin": {
+      "value": 17.2,
+      "unit": "g/dL"
+    },
+    "wbc": {
+      "value": 6.5,
+      "unit": "10^3/L"
+    },
+    "platelets": {
+      "value": 369.5,
+      "unit": "10^3/L"
+    }
+  },
+  "generated_at": "2026-03-16T11:56:54.567754Z"
+}

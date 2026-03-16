@@ -1,0 +1,151 @@
+{
+  "image": "images\\report_00003.png",
+  "width": 1654,
+  "height": 2339,
+  "fields": {
+    "patient_name": {
+      "text": "Mona Khalid",
+      "bbox": [
+        249,
+        156,
+        626,
+        22
+      ]
+    },
+    "sex_age": {
+      "text": "Female / 30 year",
+      "bbox": [
+        1009,
+        156,
+        626,
+        28
+      ]
+    },
+    "referred_by": {
+      "text": "Prof. Dr. Zein",
+      "bbox": [
+        209,
+        186,
+        626,
+        22
+      ]
+    },
+    "date": {
+      "text": "04/07/2019",
+      "bbox": [
+        959,
+        186,
+        626,
+        22
+      ]
+    },
+    "path_code": {
+      "text": "89",
+      "bbox": [
+        209,
+        220,
+        626,
+        22
+      ]
+    },
+    "vcode": {
+      "text": "RW40R4NEO",
+      "bbox": [
+        959,
+        220,
+        626,
+        22
+      ]
+    },
+    "signature": {
+      "text": "Pathologist\nProf. Dr. R. Mansour",
+      "bbox": [
+        1255,
+        2160,
+        300,
+        60
+      ]
+    }
+  },
+  "sections": [
+    {
+      "label": "Lab Results",
+      "text": "Glucose: 118.7 mg/dL\nHGB: 12.3 g/dL\nWBC: 8.1 10^3/L\nPLT: 216.5 10^3/L",
+      "bbox": [
+        109,
+        311,
+        279,
+        112
+      ]
+    },
+    {
+      "label": "Clinical",
+      "text": "Few portal areas showed minimal lymphocytic infiltrates without plasma cell predominance. No pathological features to suggest autoimmune hepatitis.",
+      "bbox": [
+        109,
+        468,
+        944,
+        64
+      ]
+    },
+    {
+      "label": "Gross",
+      "text": "No evidence of viral inclusions or granulomatous inflammation. This picture is suggestive of a minimal drug-induced reaction. This picture is suggestive of a minimal drug-induced reaction.",
+      "bbox": [
+        109,
+        575,
+        969,
+        96
+      ]
+    },
+    {
+      "label": "Microscopic",
+      "text": "Cores of tissue measuring approximately 1.5 cm were prepared and stained. No pathological features to suggest autoimmune hepatitis. No evidence of viral inclusions or granulomatous inflammation. Mild elevated enzymes with negative viral markers. Liver biopsy. No evidence of viral inclusions or granulomatous inflammation.",
+      "bbox": [
+        109,
+        721,
+        1005,
+        154
+      ]
+    },
+    {
+      "label": "Diagnosis",
+      "text": "Few portal areas showed minimal lymphocytic infiltrates without plasma cell predominance. No evidence of viral inclusions or granulomatous inflammation. This picture is suggestive of a minimal drug-induced reaction. Few portal areas showed minimal lymphocytic infiltrates without plasma cell predominance. This picture is suggestive of a minimal drug-induced reaction.",
+      "bbox": [
+        109,
+        925,
+        1043,
+        160
+      ]
+    },
+    {
+      "label": "Notes",
+      "text": "No evidence of viral inclusions or granulomatous inflammation. No pathological features to suggest autoimmune hepatitis.",
+      "bbox": [
+        109,
+        1128,
+        990,
+        64
+      ]
+    }
+  ],
+  "expected_labs": {
+    "glucose": {
+      "value": 118.7,
+      "unit": "mg/dL"
+    },
+    "hemoglobin": {
+      "value": 12.3,
+      "unit": "g/dL"
+    },
+    "wbc": {
+      "value": 8.1,
+      "unit": "10^3/L"
+    },
+    "platelets": {
+      "value": 216.5,
+      "unit": "10^3/L"
+    }
+  },
+  "generated_at": "2026-03-16T11:56:54.014521Z"
+}

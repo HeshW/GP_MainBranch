@@ -1,0 +1,151 @@
+{
+  "image": "images\\report_00010.png",
+  "width": 1654,
+  "height": 2339,
+  "fields": {
+    "patient_name": {
+      "text": "Sara Hassan",
+      "bbox": [
+        249,
+        156,
+        626,
+        22
+      ]
+    },
+    "sex_age": {
+      "text": "Female / 26 year",
+      "bbox": [
+        1009,
+        156,
+        626,
+        28
+      ]
+    },
+    "referred_by": {
+      "text": "Prof. Dr. Ramy",
+      "bbox": [
+        209,
+        186,
+        626,
+        28
+      ]
+    },
+    "date": {
+      "text": "22/05/2022",
+      "bbox": [
+        959,
+        186,
+        626,
+        22
+      ]
+    },
+    "path_code": {
+      "text": "27",
+      "bbox": [
+        209,
+        226,
+        626,
+        22
+      ]
+    },
+    "vcode": {
+      "text": "263IY94QD",
+      "bbox": [
+        959,
+        226,
+        626,
+        23
+      ]
+    },
+    "signature": {
+      "text": "Pathologist\nProf. Dr. A. Shehab",
+      "bbox": [
+        1255,
+        2160,
+        300,
+        60
+      ]
+    }
+  },
+  "sections": [
+    {
+      "label": "Lab Results",
+      "text": "Glucose: 101.9 mg/dL\nHGB: 17.3 g/dL\nWBC: 3.7 10^3/L\nPLT: 275.4 10^3/L",
+      "bbox": [
+        109,
+        318,
+        279,
+        112
+      ]
+    },
+    {
+      "label": "Clinical",
+      "text": "Intact architecture with minimal inflammatory reaction and no portal fibrosis. Examination revealed tissue sections with no evidence of significant fibrosis. Intact architecture with minimal inflammatory reaction and no portal fibrosis. Examination revealed tissue sections with no evidence of significant fibrosis. This picture is suggestive of a minimal drug-induced reaction.",
+      "bbox": [
+        109,
+        475,
+        958,
+        160
+      ]
+    },
+    {
+      "label": "Gross",
+      "text": "Mild elevated enzymes with negative viral markers. Liver biopsy. Mild elevated enzymes with negative viral markers. Liver biopsy.",
+      "bbox": [
+        109,
+        678,
+        980,
+        64
+      ]
+    },
+    {
+      "label": "Microscopic",
+      "text": "This picture is suggestive of a minimal drug-induced reaction. No pathological features to suggest autoimmune hepatitis. No pathological features to suggest autoimmune hepatitis.",
+      "bbox": [
+        109,
+        792,
+        984,
+        96
+      ]
+    },
+    {
+      "label": "Diagnosis",
+      "text": "Intact architecture with minimal inflammatory reaction and no portal fibrosis. No pathological features to suggest autoimmune hepatitis. Cores of tissue measuring approximately 1.5 cm were prepared and stained. Mild elevated enzymes with negative viral markers. Liver biopsy. Examination revealed tissue sections with no evidence of significant fibrosis.",
+      "bbox": [
+        109,
+        938,
+        1026,
+        160
+      ]
+    },
+    {
+      "label": "Notes",
+      "text": "Few portal areas showed minimal lymphocytic infiltrates without plasma cell predominance. Cores of tissue measuring approximately 1.5 cm were prepared and stained.",
+      "bbox": [
+        109,
+        1141,
+        1049,
+        90
+      ]
+    }
+  ],
+  "expected_labs": {
+    "glucose": {
+      "value": 101.9,
+      "unit": "mg/dL"
+    },
+    "hemoglobin": {
+      "value": 17.3,
+      "unit": "g/dL"
+    },
+    "wbc": {
+      "value": 3.7,
+      "unit": "10^3/L"
+    },
+    "platelets": {
+      "value": 275.4,
+      "unit": "10^3/L"
+    }
+  },
+  "generated_at": "2026-03-16T11:56:54.656754Z"
+}

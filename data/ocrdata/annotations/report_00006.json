@@ -1,0 +1,151 @@
+{
+  "image": "images\\report_00006.png",
+  "width": 1654,
+  "height": 2339,
+  "fields": {
+    "patient_name": {
+      "text": "Sara Zalat",
+      "bbox": [
+        249,
+        156,
+        626,
+        22
+      ]
+    },
+    "sex_age": {
+      "text": "Male / 1 year",
+      "bbox": [
+        1009,
+        156,
+        626,
+        28
+      ]
+    },
+    "referred_by": {
+      "text": "Prof. Dr. Khaled",
+      "bbox": [
+        209,
+        186,
+        626,
+        22
+      ]
+    },
+    "date": {
+      "text": "23/11/2022",
+      "bbox": [
+        959,
+        186,
+        626,
+        22
+      ]
+    },
+    "path_code": {
+      "text": "7",
+      "bbox": [
+        209,
+        220,
+        626,
+        22
+      ]
+    },
+    "vcode": {
+      "text": "JXYLN1YFW",
+      "bbox": [
+        959,
+        220,
+        626,
+        22
+      ]
+    },
+    "signature": {
+      "text": "Pathologist\nProf. Dr. R. Mansour",
+      "bbox": [
+        1255,
+        2160,
+        300,
+        60
+      ]
+    }
+  },
+  "sections": [
+    {
+      "label": "Lab Results",
+      "text": "Glucose: 102.0 mg/dL\nHGB: 13.4 g/dL\nWBC: 8.4 10^3/L\nPLT: 155.0 10^3/L",
+      "bbox": [
+        109,
+        311,
+        279,
+        112
+      ]
+    },
+    {
+      "label": "Clinical",
+      "text": "No evidence of viral inclusions or granulomatous inflammation. Examination revealed tissue sections with no evidence of significant fibrosis. Cores of tissue measuring approximately 1.5 cm were prepared and stained.",
+      "bbox": [
+        109,
+        468,
+        950,
+        96
+      ]
+    },
+    {
+      "label": "Gross",
+      "text": "No pathological features to suggest autoimmune hepatitis. No evidence of viral inclusions or granulomatous inflammation. No pathological features to suggest autoimmune hepatitis. Examination revealed tissue sections with no evidence of significant fibrosis. Mild elevated enzymes with negative viral markers. Liver biopsy.",
+      "bbox": [
+        109,
+        607,
+        1006,
+        160
+      ]
+    },
+    {
+      "label": "Microscopic",
+      "text": "No evidence of viral inclusions or granulomatous inflammation. Few portal areas showed minimal lymphocytic infiltrates without plasma cell predominance. Few portal areas showed minimal lymphocytic infiltrates without plasma cell predominance.",
+      "bbox": [
+        109,
+        817,
+        1005,
+        128
+      ]
+    },
+    {
+      "label": "Diagnosis",
+      "text": "No pathological features to suggest autoimmune hepatitis. Mild elevated enzymes with negative viral markers. Liver biopsy.",
+      "bbox": [
+        109,
+        995,
+        1029,
+        64
+      ]
+    },
+    {
+      "label": "Notes",
+      "text": "Intact architecture with minimal inflammatory reaction and no portal fibrosis. Cores of tissue measuring approximately 1.5 cm were prepared and stained.",
+      "bbox": [
+        109,
+        1102,
+        961,
+        64
+      ]
+    }
+  ],
+  "expected_labs": {
+    "glucose": {
+      "value": 102.0,
+      "unit": "mg/dL"
+    },
+    "hemoglobin": {
+      "value": 13.4,
+      "unit": "g/dL"
+    },
+    "wbc": {
+      "value": 8.4,
+      "unit": "10^3/L"
+    },
+    "platelets": {
+      "value": 155.0,
+      "unit": "10^3/L"
+    }
+  },
+  "generated_at": "2026-03-16T11:56:54.286521Z"
+}

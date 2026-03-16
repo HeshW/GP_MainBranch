@@ -1,0 +1,151 @@
+{
+  "image": "images\\report_00013.png",
+  "width": 1654,
+  "height": 2339,
+  "fields": {
+    "patient_name": {
+      "text": "Layla Kamal",
+      "bbox": [
+        249,
+        156,
+        626,
+        28
+      ]
+    },
+    "sex_age": {
+      "text": "Female / 91 year",
+      "bbox": [
+        1009,
+        156,
+        626,
+        28
+      ]
+    },
+    "referred_by": {
+      "text": "Prof. Dr. Ramy",
+      "bbox": [
+        209,
+        192,
+        626,
+        28
+      ]
+    },
+    "date": {
+      "text": "15/06/2020",
+      "bbox": [
+        959,
+        192,
+        626,
+        22
+      ]
+    },
+    "path_code": {
+      "text": "91",
+      "bbox": [
+        209,
+        232,
+        626,
+        22
+      ]
+    },
+    "vcode": {
+      "text": "42OR3JQSM",
+      "bbox": [
+        959,
+        232,
+        626,
+        23
+      ]
+    },
+    "signature": {
+      "text": "Pathologist\nProf. Dr. R. Mansour",
+      "bbox": [
+        1255,
+        2160,
+        300,
+        60
+      ]
+    }
+  },
+  "sections": [
+    {
+      "label": "Lab Results",
+      "text": "Glucose: 121.9 mg/dL\nHGB: 15.3 g/dL\nWBC: 6.7 10^3/L\nPLT: 431.4 10^3/L",
+      "bbox": [
+        109,
+        324,
+        279,
+        112
+      ]
+    },
+    {
+      "label": "Clinical",
+      "text": "Mild elevated enzymes with negative viral markers. Liver biopsy. No pathological features to suggest autoimmune hepatitis. No evidence of viral inclusions or granulomatous inflammation. No evidence of viral inclusions or granulomatous inflammation.",
+      "bbox": [
+        109,
+        481,
+        1009,
+        122
+      ]
+    },
+    {
+      "label": "Gross",
+      "text": "This picture is suggestive of a minimal drug-induced reaction. Mild elevated enzymes with negative viral markers. Liver biopsy. Cores of tissue measuring approximately 1.5 cm were prepared and stained.",
+      "bbox": [
+        109,
+        646,
+        967,
+        96
+      ]
+    },
+    {
+      "label": "Microscopic",
+      "text": "No evidence of viral inclusions or granulomatous inflammation. No evidence of viral inclusions or granulomatous inflammation. This picture is suggestive of a minimal drug-induced reaction. Mild elevated enzymes with negative viral markers. Liver biopsy.",
+      "bbox": [
+        109,
+        792,
+        1033,
+        128
+      ]
+    },
+    {
+      "label": "Diagnosis",
+      "text": "Cores of tissue measuring approximately 1.5 cm were prepared and stained. This picture is suggestive of a minimal drug-induced reaction. This picture is suggestive of a minimal drug-induced reaction. No evidence of viral inclusions or granulomatous inflammation.",
+      "bbox": [
+        109,
+        970,
+        1022,
+        128
+      ]
+    },
+    {
+      "label": "Notes",
+      "text": "Mild elevated enzymes with negative viral markers. Liver biopsy. No evidence of viral inclusions or granulomatous inflammation. No pathological features to suggest autoimmune hepatitis. This picture is suggestive of a minimal drug-induced reaction. This picture is suggestive of a minimal drug-induced reaction.",
+      "bbox": [
+        109,
+        1141,
+        1004,
+        128
+      ]
+    }
+  ],
+  "expected_labs": {
+    "glucose": {
+      "value": 121.9,
+      "unit": "mg/dL"
+    },
+    "hemoglobin": {
+      "value": 15.3,
+      "unit": "g/dL"
+    },
+    "wbc": {
+      "value": 6.7,
+      "unit": "10^3/L"
+    },
+    "platelets": {
+      "value": 431.4,
+      "unit": "10^3/L"
+    }
+  },
+  "generated_at": "2026-03-16T11:56:54.966754Z"
+}
