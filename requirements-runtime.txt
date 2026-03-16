@@ -1,0 +1,18 @@
+# Runtime-pinned OCR stack (legacy-compatible profile)
+# Based on the validated handoff profile for this project.
+# Keep this separate from requirements-test.txt.
+#
+# Install note:
+# 1) Install this file first.
+# 2) Then install PaddleOCR without transitive deps to avoid PyMuPDF/pdf2docx SWIG builds:
+#    python -m pip install --no-deps paddleocr==2.7.0.3
+
+numpy==1.23.5
+opencv-python==4.6.0.66
+paddlepaddle==2.6.2
+scikit-image==0.20.0
+Pillow
+requests
+PyYAML
+shapely
+pyclipper
