@@ -1,0 +1,141 @@
+[
+  {
+    "image": "GUR-0425-PA-0056646_Q-VARSHAKUMARI202790001compressed_250428_1144@F.pdf_page_36.png",
+    "status": "OK",
+    "raw_ocr_count": 42,
+    "fields_count": 2,
+    "sections_count": 1,
+    "labs_count": 0,
+    "field_keys": [
+      "date",
+      "title"
+    ],
+    "labs_sample": [],
+    "warnings_count": 0
+  },
+  {
+    "image": "BLR-0425-PA-0042579_F-SARAFATHIMAPREAUTHREQUEST_250427_1545@G.pdf_page_11.png",
+    "status": "OK",
+    "raw_ocr_count": 34,
+    "fields_count": 0,
+    "sections_count": 1,
+    "labs_count": 0,
+    "field_keys": [],
+    "labs_sample": [],
+    "warnings_count": 0
+  },
+  {
+    "image": "BLR-0425-PA-0038965_BIPUL CHAKRABORTY 0038965 2 OF 2_28-04-2025_1014-26_AM.pdf_page_8.png",
+    "status": "OK",
+    "raw_ocr_count": 50,
+    "fields_count": 1,
+    "sections_count": 1,
+    "labs_count": 2,
+    "field_keys": [
+      "patient_name"
+    ],
+    "labs_sample": [
+      [
+        "creatinine",
+        {
+          "value": 1.04,
+          "unit": null,
+          "source_match": "CREATININE 1.04 ",
+          "confidence": 0.964
+        }
+      ],
+      [
+        "sodium",
+        {
+          "value": 500.0,
+          "unit": null,
+          "source_match": "na- 500 ",
+          "confidence": 0.955
+        }
+      ]
+    ],
+    "warnings_count": 0
+  },
+  {
+    "image": "HYD-0425-PA-0006452_D ADINARAYANA PREAUTH DOCUMENTS_27-04-2025_1212-53_PM@E.pdf_page_14.png",
+    "status": "OK",
+    "raw_ocr_count": 20,
+    "fields_count": 1,
+    "sections_count": 1,
+    "labs_count": 1,
+    "field_keys": [
+      "title"
+    ],
+    "labs_sample": [
+      [
+        "creatinine",
+        {
+          "value": 34.4,
+          "unit": null,
+          "source_match": "CrP(CREACTiVEPROTEIn) \u2192 34.4",
+          "confidence": 0.793
+        }
+      ]
+    ],
+    "warnings_count": 1
+  },
+  {
+    "image": "GUR-0425-PA-0045348_Q-FINALBILLWITHDISCHARGEDOCUMENTS_250411_1130@F.pdf_page_85.png",
+    "status": "OK",
+    "raw_ocr_count": 94,
+    "fields_count": 1,
+    "sections_count": 1,
+    "labs_count": 6,
+    "field_keys": [
+      "title"
+    ],
+    "labs_sample": [
+      [
+        "creatinine",
+        {
+          "value": 45.3,
+          "unit": "%",
+          "source_match": "CR 45.30 %",
+          "confidence": 0.885
+        }
+      ],
+      [
+        "potassium",
+        {
+          "value": 4.2,
+          "unit": "mmol/l",
+          "source_match": "Potassium 4.2 mmol/l",
+          "confidence": 0.866
+        }
+      ],
+      [
+        "glucose",
+        {
+          "value": 118.0,
+          "unit": null,
+          "source_match": "GLUCOSE RANDOM \u2192 118",
+          "confidence": 0.992
+        }
+      ],
+      [
+        "aspartate aminotransferase",
+        {
+          "value": 89.6,
+          "unit": null,
+          "source_match": "Aspartate Aminotransferase (Ast/$GOT) \u2192 89.60",
+          "confidence": 0.967
+        }
+      ],
+      [
+        "iron",
+        {
+          "value": 89.6,
+          "unit": null,
+          "source_match": "Aspartate Aminotransferase (Ast/$GOT) \u2192 89.60",
+          "confidence": 0.967
+        }
+      ]
+    ],
+    "warnings_count": 4
+  }
+]
