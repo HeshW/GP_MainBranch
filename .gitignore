@@ -15,7 +15,29 @@ venv/
 *.npy
 *.pkl
 data/samples/*
+# Dataset directories (do not commit large datasets or PHI)
+data/kaggleocrset/
+data/ocrdata/
 
 # OS files
 .DS_Store
 Thumbs.db
+
+# Logs and temporary outputs
+logs/
+*.log
+pytest_run.log
+test-run.txt
+pytest_after_runtime.log
+
+# Editor / IDE
+.idea/
+
+# Local runtime artifacts
+.old_venvs/
+*.db
+*.sqlite3
+*.log
+
+# Ignore generated pytest cache
+.pytest_cache/
