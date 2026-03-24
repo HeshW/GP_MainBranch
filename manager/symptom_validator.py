@@ -1,0 +1,108 @@
+"""Validator and normalizer for parsed symptom/lab data."""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from manager.symptom_parser import _get_lab_aliases
+
+
+LOW_CONFIDENCE_THRESHOLD = 0.7
+
+
+def _canonical_lab_name(name: str) -> str:
+    aliases = _get_lab_aliases()
+    lower = name.lower().strip()
+    if lower in aliases:
+        return aliases[lower]
+    return lower
+
+
+def _normalize_unit(lab_key: str, unit: Optional[str]) -> Optional[str]:
+    if unit is None:
+        return None
+
+    unit = unit.strip().lower()
+    unit = unit.replace("µ", "u").replace("μ", "u")
+    unit = unit.replace("x10^3", "x10^3").replace("/ul", "/ul")
+
+    replacements = {
+        "mg/dl": "mg/dL",
+        "g/dl": "g/dL",
+        "mmol/l": "mmol/L",
+        "meq/l": "mEq/L",
+        "%": "%",
+    }
+    return replacements.get(unit, unit)
+
+
+def validate_parsed(parsed: Dict[str, Any], low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD) -> Dict[str, Any]:
+    if not isinstance(parsed, dict):
+        raise TypeError("parsed must be a dict")
+
+    labs_in = parsed.get("labs", {}) or {}
+    symptoms_in = parsed.get("symptoms", []) or []
+
+    validated_labs: Dict[str, Dict[str, Any]] = {}
+    confidence_map: Dict[str, float] = {}
+    warnings: List[str] = []
+
+    for raw_lab_key, lab_data in labs_in.items():
+        if not isinstance(lab_data, dict):
+            warnings.append(f"Invalid lab format for '{raw_lab_key}'.")
+            continue
+
+        canonical_key = _canonical_lab_name(raw_lab_key)
+        if canonical_key == "":
+            warnings.append(f"Empty lab key from '{raw_lab_key}'.")
+            continue
+
+        value = lab_data.get("value")
+        if value is None or not isinstance(value, (int, float)):
+            warnings.append(f"Lab '{raw_lab_key}' missing numeric value.")
+            continue
+
+        unit = _normalize_unit(canonical_key, lab_data.get("unit"))
+        confidence = float(lab_data.get("confidence", 0.6))
+
+        if value < 0:
+            warnings.append(f"Lab '{canonical_key}' has negative value {value}.")
+
+        validated_labs[canonical_key] = {
+            "value": float(value),
+            "unit": unit,
+            "source": lab_data.get("source", ""),
+        }
+        confidence_map[canonical_key] = max(0.0, min(1.0, confidence))
+
+    symptom_texts: List[str] = []
+    for sym in symptoms_in:
+        if not isinstance(sym, dict):
+            continue
+        s = sym.get("symptom")
+        if s and isinstance(s, str):
+            symptom_texts.append(s.lower().strip())
+
+    review_required = False
+    details: List[Dict[str, Any]] = []
+
+    for lab_key, conf in confidence_map.items():
+        if conf < low_confidence_threshold:
+            review_required = True
+            details.append({"lab": lab_key, "confidence": conf})
+
+    if not symptom_texts and not validated_labs:
+        review_required = True
+        warnings.append("No symptoms or lab data could be validated from free-text input.")
+
+    return {
+        "labs": validated_labs,
+        "symptoms": symptom_texts,
+        "confidence": confidence_map,
+        "warnings": warnings,
+        "review_required": review_required,
+        "review_details": details,
+    }

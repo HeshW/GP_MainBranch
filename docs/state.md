@@ -1,61 +1,51 @@
 # GP Project State
 
-Last updated: 2026-03-16
+Last updated: 2026-03-24
 
 Environment
 - Active project virtual environment: `.venv` (Python 3.11.9)
 - Dependency manifests: `requirements-runtime.txt`, `requirements-test.txt`, `requirements.txt` (delegates)
 
-Project status summary (2026-03-16)
-- Focus: Dataset validation and OCR pipeline verification.
-- Unit tests: `pytest` run locally → `85 passed, 101 warnings` (Paddle/proto deprecation warnings non-blocking).
+Project status summary (2026-03-24)
+- Focus: Manager-level orchestration and integrated testing across OCR + Diagnosis, with manual labs and symptom input support.
+- Unit tests: `pytest` run locally → 98+ passed across OCR, diagnosis, and manager tests; no failures in current branch.
 
-Recent engineering updates (2026-03-16)
-- Diagnosis: prototype notebook refactored into `models/diagnosis/diagnosisengine.py`. The refactor provides:
-  - Lightweight rule-based analysis (`_RULES` + `_diagnose_from_labs`).
-  - Optional RAG path (ClinicalBERT + FAISS + Gemini) guarded by lazy imports and opt-in flags.
-  - Public API: module-level `diagnose()` convenience function and `DiagnosisEngine` class for stateful use.
-- Manager adapter: `manager/diagnosis_adapter.py` added to bridge OCR output to the diagnosis engine and provide a small CLI entrypoint.
-- Tests: new tests added in `tests/test_diagnosis_engine.py`; full test suite now passes locally (`89 passed, 101 warnings`).
-- Validation and docs: `DiagnosisEngine.diagnose()` validates inputs and `docs/DIAGNOSIS_ENGINE.md` documents usage and expected input shape.
-- Code hygiene: heavy ML dependencies are imported at runtime only (lazy imports) so the lightweight path is usable without installing torch/faiss/Gemini SDKs.
+Recent engineering updates (2026-03-24)
+- `manager/chat_manager.py` implemented (run_ocr, _build_report, run_diagnosis, run_pipeline, run_chat prototype).
+- `manager/diagnosis_adapter.py` updated to delegate to `ChatManager` and preserve legacy model function signatures.
+- `manager/manager_tester.py` implemented interactive and one-shot CLI with args for image/labs/symptoms/RAG.
+- `tests/test_manager.py` and `tests/test_manager_tester.py` added and validated.
+- RAG support paths tested for default disable and parameter handling (see `test_rag_disabled_by_default`).
+- Manual input support added (symptoms + labs merge path) and tested (`test_manual_input_only_path`).
+- README updated with manager tester quickstart.
 
-Key implemented items
-- OCR pipeline
-  - `OCREngine` (models/ocr/engine.py): multi-pass parsing, `raw_ocr` output, per-lab `confidence`, `warnings` aggregation.
-  - `fields.py`: header/section extraction utilities.
-  - `patterns.py` + `synonyms_v15.json`: lab label patterns and synonym mappings.
-  - Smoke utilities: `models/ocr/scripts/_print_raw_text_plus_fields.py` and `scripts/run_ocr_smoke.py`.
+Key implemented items (complete)
+- OCR layer: `models/ocr` pipeline, synonyms, section extraction, and smoke test scripts.
+- Diagnosis layer: `models/diagnosis/diagnosisengine.py` with full rule set and opt-in RAG path.
+- Orchestration layer: `manager/chat_manager.py` and adapter/test harness.
+- Tests: expanded integration + unit tests, stable execution with all tests passing.
 
-- Synthetic dataset
-  - `models/ocr/scripts/scripts_generate_synthetic_reports.py` updated to produce OCR-ready samples with `expected_labs` ground truth.
-  - `data/ocrdata/` generated locally (20 samples) for OCR validation (not committed to remote).
+VCS & data status
+- `.gitignore` ensures `data/kaggleocrset/` and `data/ocrdata/` are not committed; `.idea` local workspace metadata is present but can be ignored if undesired.
+- Example dataset: smoke-test harness uses `data/kaggleocrset`; test results saved in `test_results_kaggleocrset.json`.
+- No FAISS index or Gemini credentials in repo; RAG path is environment-optional.
 
-VCS & CI notes
-- `.gitignore` updated to ignore `data/kaggleocrset/` and `data/ocrdata/`.
-- Sensitive dataset files that were previously tracked were purged from git history and removed from remote.
-- GitHub Actions workflows were added, iterated, and then removed temporarily to resolve editor diagnostics; workspace now suppresses stale diagnostics for `.github/workflows/**`.
-
-Verification
-- Ran smoke extraction on `data/labreport1test.png` → `fields` and `sections` parsed; `labs_count` was 0.
-- Ran smoke tests on selected images from `data/kaggleocrset/` → sample run passed.
-
-Known constraints & recommendations
-- Use non-conda Python 3.11 `.venv` to avoid ABI issues.
-- Install runtime pins before running heavy OCR scripts:
-  ```bash
-  source .venv/Scripts/activate
-  python -m pip install -r requirements-runtime.txt
-  python -m pip install --no-deps paddleocr==2.7.0.3
-  ```
-- Guard heavy/integration OCR tests with `RUN_OCR_INTEGRATION=1`.
+Open items and blockers
+- Free-text symptom parser/validator implemented and reviewed (complete).
+- FastAPI/web UI not implemented.
+- Therapy module integration pending.
+- RAG index data must still be provided externally for full RAG path validation.
 
 Next immediate actions
-1. Add integration test for `data/ocrdata/` vs `expected_labs` (opt-in).
-2. Manually review `models/ocr/synonyms_v15.json` and extend lab synonyms.
-3. Add barcode validation CLI and batch JSON output.
-4. Expand `DiagnosisEngine` unit tests to cover rule boundaries, unit/scale variants, and malformed inputs.
-5. Add a loader to externalise `_RULES` into a config file (YAML/JSON) and add schema validation.
-6. Prepare RAG index-building scripts and an opt-in integration job for heavy-path tests (requires separate CI runner or gated job).
+1. Build FastAPI service (`api/app.py`) with endpoints for /v1/pipeline and /v1/symptoms.
+2. Add UI workflow for symptom review, manual lab correction, and approval.
+3. Add therapy suggestion state in `models/therapy` (and `ChatManager.run_therapy`).
+4. Add CI checks for RAG-path optional dependencies and dataset availability gating.
+5. Add schema-based request validation with Pydantic models.
+
+Quick status
+- All required manager implementation tasks (PR#1–PR#7) are complete and code pushed.
+- Current blocker: one downstream feature (free-text symptom NLP) pending implementation.
+
 
 

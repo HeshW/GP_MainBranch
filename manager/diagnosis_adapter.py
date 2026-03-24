@@ -109,6 +109,16 @@ def run_from_image(
     return manager.run_pipeline(image=image_path)
 
 
+def run_from_symptoms(
+    text: str,
+    *,
+    low_confidence_threshold: float = 0.7,
+) -> Dict[str, Any]:
+    """Parse free text symptoms and run through manager pipeline."""
+    manager = ChatManager()
+    return manager.run_from_symptoms(text, low_confidence_threshold=low_confidence_threshold)
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------

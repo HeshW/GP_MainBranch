@@ -60,6 +60,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--labs", help="JSON string of labs, e.g. '{\"glucose\":140.0}'")
     parser.add_argument("--labs-file", help="Path to a JSON file with labs.")
     parser.add_argument("--symptoms", help="Optional symptom text for manual_input.")
+    parser.add_argument("--use-symptom-parser", action="store_true", help="Run symptom parser/validator before diagnosis.")
     parser.add_argument("--rag", action="store_true", help="Enable RAG path in DiagnosisEngine.")
     parser.add_argument("--faiss-index-dir", help="FAISS index dir for RAG.")
     parser.add_argument("--gemini-key", help="Gemini API key for RAG.")
@@ -77,15 +78,23 @@ def main(argv: Optional[list[str]] = None) -> int:
             if labs_obj is not None:
                 manual_input["labs"] = labs_obj
 
-        result = run_once(
-            image=args.image,
-            labs=None if args.image else labs_obj,
-            manual_input=manual_input if args.image is None else None,
-            use_rag=args.rag,
-            faiss_index_dir=args.faiss_index_dir,
-            gemini_key=args.gemini_key,
-            rag_top_k=args.top_k,
-        )
+        if args.use_symptom_parser and args.symptoms:
+            from manager.diagnosis_adapter import run_from_symptoms
+
+            result = run_from_symptoms(
+                args.symptoms,
+                low_confidence_threshold=0.7,
+            )
+        else:
+            result = run_once(
+                image=args.image,
+                labs=None if args.image else labs_obj,
+                manual_input=manual_input if args.image is None else None,
+                use_rag=args.rag,
+                faiss_index_dir=args.faiss_index_dir,
+                gemini_key=args.gemini_key,
+                rag_top_k=args.top_k,
+            )
 
         if args.no_json:
             print(result)

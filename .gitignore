@@ -32,7 +32,9 @@ pytest_after_runtime.log
 
 # Editor / IDE
 .idea/
-
+.github/
+.github/*
+/docs
 # Local runtime artifacts
 .old_venvs/
 *.db

@@ -124,6 +124,32 @@ class ChatManager:
 
         return response
 
+    def run_from_symptoms(
+        self,
+        text: str,
+        *,
+        low_confidence_threshold: float = 0.7,
+    ) -> Dict[str, Any]:
+        """Convert free-text symptoms into structured report + run diagnosis."""
+        from manager.symptom_parser import parse_symptoms
+        from manager.symptom_validator import validate_parsed
+
+        parsed = parse_symptoms(text)
+        validated = validate_parsed(parsed, low_confidence_threshold=low_confidence_threshold)
+
+        manual_input = {
+            "symptoms": " ".join(validated.get("symptoms", [])),
+            "labs": {k: v["value"] for k, v in validated.get("labs", {}).items()},
+        }
+
+        pipeline_result = self.run_pipeline(manual_input=manual_input)
+
+        pipeline_result["parsed"] = parsed
+        pipeline_result["validated"] = validated
+        pipeline_result["review_required"] = validated.get("review_required", False)
+
+        return pipeline_result
+
     def run_chat(self, session_id: str, message: str) -> Dict[str, Any]:
         """Simplified chat hook for prototype.
 
