@@ -20,6 +20,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from manager.chat_manager import ChatManager
 from models.diagnosis import diagnose
 
 
@@ -68,6 +69,28 @@ def adapt_and_diagnose(
     )
 
 
+def run_from_labs(
+    labs: Dict[str, Any],
+    *,
+    use_rag: bool = False,
+    faiss_index_dir: Optional[Path | str] = None,
+    gemini_api_key: Optional[str] = None,
+    rag_top_k: int = 5,
+) -> Dict[str, Any]:
+    """Run diagnosis directly from a lab dict, without OCR."""
+    if not isinstance(labs, dict):
+        raise TypeError("labs must be a dict mapping lab keys to values")
+
+    manager = ChatManager(
+        use_rag=use_rag,
+        faiss_index_dir=faiss_index_dir,
+        gemini_api_key=gemini_api_key,
+        rag_top_k=rag_top_k,
+    )
+
+    return manager.run_pipeline(labs=labs)
+
+
 def run_from_image(
     image_path: Path | str,
     *,
@@ -76,32 +99,14 @@ def run_from_image(
     gemini_api_key: Optional[str] = None,
     rag_top_k: int = 5,
 ) -> Dict[str, Any]:
-    """Extract OCR from *image_path* then diagnose.
-
-    ``OCREngine`` (which requires PaddleOCR) is imported lazily so that
-    unit tests importing this module are not blocked by heavy dependencies.
-
-    Returns
-    -------
-    dict
-        ``ocr``        – full ``OCREngine.extract()`` result
-        ``diagnosis``  – ``adapt_and_diagnose()`` result
-    """
-    # Lazy import avoids loading PaddleOCR at module import time.
-    from models.ocr.engine import OCREngine  # noqa: PLC0415
-
-    engine = OCREngine()
-    ocr_result = engine.extract(Path(image_path))
-    return {
-        "ocr": ocr_result,
-        "diagnosis": adapt_and_diagnose(
-            ocr_result,
-            use_rag=use_rag,
-            faiss_index_dir=faiss_index_dir,
-            gemini_api_key=gemini_api_key,
-            rag_top_k=rag_top_k,
-        ),
-    }
+    """Extract OCR from *image_path* then diagnose using ChatManager."""
+    manager = ChatManager(
+        use_rag=use_rag,
+        faiss_index_dir=faiss_index_dir,
+        gemini_api_key=gemini_api_key,
+        rag_top_k=rag_top_k,
+    )
+    return manager.run_pipeline(image=image_path)
 
 
 # ---------------------------------------------------------------------------

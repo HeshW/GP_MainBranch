@@ -15,6 +15,14 @@ tests/        – unit tests
 
 ## Quick Start
 
+### Run manager tester (console prototype)
+
+- `python -m manager.manager_tester --labs '{"glucose": 145.0, "hemoglobin": 11.0}'`
+- `python -m manager.manager_tester --symptoms "fatigue and thirst" --labs '{"glucose": 185.0}'`
+- `python -m manager.manager_tester --image path/to/report.png`
+
+(Use `--rag --faiss-index-dir /path --gemini-key $GEMINI_API_KEY` to enable RAG once configured.)
+
 ### Installation
 
 ```bash
