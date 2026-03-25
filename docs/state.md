@@ -35,6 +35,7 @@ Open items and blockers
 - FastAPI/web UI not implemented.
 - Therapy module integration pending.
 - RAG index data must still be provided externally for full RAG path validation.
+- OCR and diagnosis are currently rule-based only; no pretrained/wider dataset models are used yet.
 
 Next immediate actions
 1. Build FastAPI service (`api/app.py`) with endpoints for /v1/pipeline and /v1/symptoms.
@@ -42,6 +43,8 @@ Next immediate actions
 3. Add therapy suggestion state in `models/therapy` (and `ChatManager.run_therapy`).
 4. Add CI checks for RAG-path optional dependencies and dataset availability gating.
 5. Add schema-based request validation with Pydantic models.
+6. Add dataset-driven OCR and diagnosis model training / evaluation (for robustness in messy scenarios).
+7. Add RAG path setup/testing/verification (index provisioning, optional dependency checks, end-to-end validation).
 
 Quick status
 - All required manager implementation tasks (PR#1–PR#7) are complete and code pushed.
