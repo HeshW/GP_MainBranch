@@ -34,7 +34,7 @@ Open items and blockers
 - Free-text symptom parser/validator implemented and reviewed (complete).
 - FastAPI/web UI not implemented.
 - Therapy module integration pending.
-- RAG index data must still be provided externally for full RAG path validation.
+- RAG index data must still be provided externally for full RAG path validation (LLM Generation path).
 - OCR and diagnosis are currently rule-based only; no pretrained/wider dataset models are used yet.
 
 Next immediate actions
@@ -48,7 +48,7 @@ Next immediate actions
 
 Quick status
 - All required manager implementation tasks (PR#1–PR#7) are complete and code pushed.
-- Current blocker: one downstream feature (free-text symptom NLP) pending implementation.
+- Current blocker: FastAPI/web UI
 
 
 
