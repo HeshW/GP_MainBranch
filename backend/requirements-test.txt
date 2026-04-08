@@ -1,0 +1,5 @@
+# Test-only dependencies.
+# Keep this file free of runtime binary packages so it cannot override
+# `requirements-runtime.txt` pins (notably NumPy/OpenCV/Paddle).
+
+pytest>=8.1.1

@@ -1,0 +1,5 @@
+# Unified install entrypoint.
+# Runtime binary packages are pinned in requirements-runtime.txt.
+# Test tools are listed in requirements-test.txt.
+-r requirements-runtime.txt
+-r requirements-test.txt

@@ -1,0 +1,269 @@
+rules:
+  # -- Glucose (mg/dL) --
+  - lab: glucose
+    condition: Hypoglycemia
+    operator: lt
+    limit: 70
+    confidence: high
+    severity: critical
+    evidence_fmt: "glucose={val} {unit} (reference: 70-100 mg/dL fasting)"
+
+  - lab: glucose
+    condition: "Impaired Fasting Glucose / Prediabetes"
+    operator: range
+    min: 100
+    max: 126
+    confidence: moderate
+    severity: moderate
+    evidence_fmt: "glucose={val} {unit} (reference: <100 mg/dL fasting)"
+
+  - lab: glucose
+    condition: "Diabetes Mellitus (suspected)"
+    operator: ge
+    limit: 126
+    confidence: high
+    severity: high
+    evidence_fmt: "glucose={val} {unit} (diagnostic threshold: >=126 mg/dL fasting)"
+
+  # -- Hemoglobin (g/dL) --
+  - lab: hemoglobin
+    condition: Severe Anemia
+    operator: lt
+    limit: 8.0
+    confidence: high
+    severity: critical
+    evidence_fmt: "hemoglobin={val} {unit} (reference: 12-17 g/dL)"
+
+  - lab: hemoglobin
+    condition: Moderate Anemia
+    operator: range
+    min: 8.0
+    max: 10.0
+    confidence: high
+    severity: high
+    evidence_fmt: "hemoglobin={val} {unit} (reference: 12-17 g/dL)"
+
+  - lab: hemoglobin
+    condition: Mild Anemia
+    operator: range
+    min: 10.0
+    max: 12.0
+    confidence: high
+    severity: moderate
+    evidence_fmt: "hemoglobin={val} {unit} (reference: 12-17 g/dL)"
+
+  - lab: hemoglobin
+    condition: "Polycythemia (suspected)"
+    operator: gt
+    limit: 17.5
+    confidence: moderate
+    severity: moderate
+    evidence_fmt: "hemoglobin={val} {unit} (reference: 12-17 g/dL; >17.5 elevated)"
+
+  # -- WBC (x10³/µL) --
+  - lab: wbc
+    condition: Leukopenia
+    operator: lt
+    limit: 4.0
+    confidence: high
+    severity: moderate
+    evidence_fmt: "wbc={val} {unit} (reference: 4.5-11.0 x10³/µL)"
+
+  - lab: wbc
+    condition: "Leukocytosis / Possible Infection or Inflammation"
+    operator: range
+    min: 11.0
+    max: 30.0
+    confidence: high
+    severity: moderate
+    evidence_fmt: "wbc={val} {unit} (reference: 4.5-11.0 x10³/µL)"
+
+  - lab: wbc
+    condition: "Severe Leukocytosis (leukemia screening warranted)"
+    operator: gt
+    limit: 30.0
+    confidence: moderate
+    severity: critical
+    evidence_fmt: "wbc={val} {unit} (critically elevated; >30.0 x10³/µL)"
+
+  # -- RBC (x10⁶/µL) --
+  - lab: rbc
+    condition: "Erythropenia (low red cell count)"
+    operator: lt
+    limit: 4.0
+    confidence: moderate
+    severity: moderate
+    evidence_fmt: "rbc={val} {unit} (reference: 4.2-6.1 x10⁶/µL)"
+
+  - lab: rbc
+    condition: "Erythrocytosis (elevated red cell count)"
+    operator: gt
+    limit: 6.1
+    confidence: moderate
+    severity: moderate
+    evidence_fmt: "rbc={val} {unit} (reference: 4.2-6.1 x10⁶/µL)"
+
+  # -- Platelets (x10³/µL) --
+  - lab: platelets
+    condition: Thrombocytopenia
+    operator: lt
+    limit: 150
+    confidence: high
+    severity: moderate
+    evidence_fmt: "platelets={val} {unit} (reference: 150-400 x10³/µL)"
+
+  - lab: platelets
+    condition: Thrombocytosis
+    operator: gt
+    limit: 450
+    confidence: moderate
+    severity: moderate
+    evidence_fmt: "platelets={val} {unit} (reference: 150-400 x10³/µL)"
+
+  # -- Hematocrit (%) --
+  - lab: hematocrit
+    condition: "Low Hematocrit (anemia indicator)"
+    operator: lt
+    limit: 36.0
+    confidence: moderate
+    severity: moderate
+    evidence_fmt: "hematocrit={val} {unit} (reference: 36-53%)"
+
+  - lab: hematocrit
+    condition: "High Hematocrit (polycythemia indicator)"
+    operator: gt
+    limit: 54.0
+    confidence: moderate
+    severity: moderate
+    evidence_fmt: "hematocrit={val} {unit} (reference: 36-53%)"
+
+  # -- Cholesterol (mg/dL) --
+  - lab: cholesterol
+    condition: "Borderline High Cholesterol"
+    operator: range
+    min: 200
+    max: 240
+    confidence: moderate
+    severity: low
+    evidence_fmt: "cholesterol={val} {unit} (reference: <200 mg/dL)"
+
+  - lab: cholesterol
+    condition: Hypercholesterolemia
+    operator: ge
+    limit: 240
+    confidence: high
+    severity: moderate
+    evidence_fmt: "cholesterol={val} {unit} (reference: <200 mg/dL)"
+
+  # -- Creatinine (mg/dL) --
+  - lab: creatinine
+    condition: "Elevated Creatinine (renal dysfunction suspected)"
+    operator: range
+    min: 1.3
+    max: 2.0
+    confidence: moderate
+    severity: moderate
+    evidence_fmt: "creatinine={val} {unit} (reference: 0.6-1.3 mg/dL)"
+
+  - lab: creatinine
+    condition: "Severely Elevated Creatinine"
+    operator: gt
+    limit: 2.0
+    confidence: high
+    severity: high
+    evidence_fmt: "creatinine={val} {unit} (reference: 0.6-1.3 mg/dL; >2.0 critical)"
+
+  # -- Urea / BUN (mg/dL) --
+  - lab: urea
+    condition: "Elevated BUN / Azotemia"
+    operator: range
+    min: 20
+    max: 50
+    confidence: moderate
+    severity: moderate
+    evidence_fmt: "urea/BUN={val} {unit} (reference: 7-20 mg/dL)"
+
+  - lab: urea
+    condition: "Severely Elevated BUN"
+    operator: gt
+    limit: 50
+    confidence: high
+    severity: high
+    evidence_fmt: "urea/BUN={val} {unit} (reference: 7-20 mg/dL; >50 critical)"
+
+  # -- Sodium (mEq/L) --
+  - lab: sodium
+    condition: Hyponatremia
+    operator: lt
+    limit: 135
+    confidence: high
+    severity: moderate
+    evidence_fmt: "sodium={val} {unit} (reference: 135-145 mEq/L)"
+
+  - lab: sodium
+    condition: Hypernatremia
+    operator: gt
+    limit: 145
+    confidence: high
+    severity: moderate
+    evidence_fmt: "sodium={val} {unit} (reference: 135-145 mEq/L)"
+
+  # -- Potassium (mEq/L) --
+  - lab: potassium
+    condition: Hypokalemia
+    operator: lt
+    limit: 3.5
+    confidence: high
+    severity: moderate
+    evidence_fmt: "potassium={val} {unit} (reference: 3.5-5.0 mEq/L)"
+
+  - lab: potassium
+    condition: Hyperkalemia
+    operator: range
+    min: 5.0
+    max: 6.0
+    confidence: high
+    severity: moderate
+    evidence_fmt: "potassium={val} {unit} (reference: 3.5-5.0 mEq/L)"
+
+  - lab: potassium
+    condition: "Severe Hyperkalemia"
+    operator: gt
+    limit: 6.0
+    confidence: high
+    severity: critical
+    evidence_fmt: "potassium={val} {unit} (reference: 3.5-5.0 mEq/L; >6.0 critical)"
+
+  # -- Calcium (mg/dL) --
+  - lab: calcium
+    condition: Hypocalcemia
+    operator: lt
+    limit: 8.5
+    confidence: moderate
+    severity: moderate
+    evidence_fmt: "calcium={val} {unit} (reference: 8.5-10.5 mg/dL)"
+
+  - lab: calcium
+    condition: Hypercalcemia
+    operator: gt
+    limit: 10.5
+    confidence: moderate
+    severity: moderate
+    evidence_fmt: "calcium={val} {unit} (reference: 8.5-10.5 mg/dL)"
+
+  # -- Iron (µg/dL) --
+  - lab: iron
+    condition: "Iron Deficiency"
+    operator: lt
+    limit: 50
+    confidence: moderate
+    severity: moderate
+    evidence_fmt: "iron={val} {unit} (reference: 50-175 µg/dL)"
+
+  - lab: iron
+    condition: "Iron Overload (suspected)"
+    operator: gt
+    limit: 175
+    confidence: low
+    severity: low
+    evidence_fmt: "iron={val} {unit} (reference: 50-175 µg/dL)"
