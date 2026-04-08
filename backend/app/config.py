@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     rag_top_k: int = 5
     rag_translate_arabic: bool = True
 
+    # Fine-tuned ClinicalBERT classifier (optional)
+    use_finetuned_classifier: bool = False
+    finetuned_model_dir: Optional[str] = None
+    classifier_max_length: int = 256
+    classifier_translate_arabic: bool = True
+
     @property
     def cors_origin_list(self) -> List[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

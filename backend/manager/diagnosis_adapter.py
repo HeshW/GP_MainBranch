@@ -32,6 +32,10 @@ def adapt_and_diagnose(
     gemini_api_key: Optional[str] = None,
     rag_top_k: int = 5,
     rag_translate_arabic: bool = True,
+    use_finetuned_classifier: bool = False,
+    finetuned_model_dir: Optional[Path | str] = None,
+    classifier_max_length: int = 256,
+    classifier_translate_arabic: bool = True,
 ) -> Dict[str, Any]:
     """Run the diagnosis engine on an ``OCREngine.extract()`` result dict.
 
@@ -68,6 +72,10 @@ def adapt_and_diagnose(
         gemini_api_key=gemini_api_key,
         rag_top_k=rag_top_k,
         rag_translate_arabic=rag_translate_arabic,
+        use_finetuned_classifier=use_finetuned_classifier,
+        finetuned_model_dir=finetuned_model_dir,
+        classifier_max_length=classifier_max_length,
+        classifier_translate_arabic=classifier_translate_arabic,
     )
 
 
@@ -79,6 +87,10 @@ def run_from_labs(
     gemini_api_key: Optional[str] = None,
     rag_top_k: int = 5,
     rag_translate_arabic: bool = True,
+    use_finetuned_classifier: bool = False,
+    finetuned_model_dir: Optional[Path | str] = None,
+    classifier_max_length: int = 256,
+    classifier_translate_arabic: bool = True,
 ) -> Dict[str, Any]:
     """Run diagnosis directly from a lab dict, without OCR."""
     if not isinstance(labs, dict):
@@ -90,6 +102,10 @@ def run_from_labs(
         gemini_api_key=gemini_api_key,
         rag_top_k=rag_top_k,
         rag_translate_arabic=rag_translate_arabic,
+        use_finetuned_classifier=use_finetuned_classifier,
+        finetuned_model_dir=finetuned_model_dir,
+        classifier_max_length=classifier_max_length,
+        classifier_translate_arabic=classifier_translate_arabic,
     )
 
     return manager.run_pipeline(labs=labs)
@@ -103,6 +119,10 @@ def run_from_image(
     gemini_api_key: Optional[str] = None,
     rag_top_k: int = 5,
     rag_translate_arabic: bool = True,
+    use_finetuned_classifier: bool = False,
+    finetuned_model_dir: Optional[Path | str] = None,
+    classifier_max_length: int = 256,
+    classifier_translate_arabic: bool = True,
 ) -> Dict[str, Any]:
     """Extract OCR from *image_path* then diagnose using ChatManager."""
     manager = ChatManager(
@@ -111,6 +131,10 @@ def run_from_image(
         gemini_api_key=gemini_api_key,
         rag_top_k=rag_top_k,
         rag_translate_arabic=rag_translate_arabic,
+        use_finetuned_classifier=use_finetuned_classifier,
+        finetuned_model_dir=finetuned_model_dir,
+        classifier_max_length=classifier_max_length,
+        classifier_translate_arabic=classifier_translate_arabic,
     )
     return manager.run_pipeline(image=image_path)
 

@@ -17,6 +17,8 @@ class MetaResponse(BaseModel):
     project: str = "GP Medical Report Analysis"
     rag_enabled: bool
     faiss_configured: bool
+    finetuned_classifier_enabled: bool = False
+    finetuned_model_configured: bool = False
 
 
 class LabsPipelineRequest(BaseModel):

@@ -33,6 +33,10 @@ class ChatManager:
         gemini_api_key: Optional[str] = None,
         rag_top_k: int = 5,
         rag_translate_arabic: bool = True,
+        use_finetuned_classifier: bool = False,
+        finetuned_model_dir: Optional[Path | str] = None,
+        classifier_max_length: int = 256,
+        classifier_translate_arabic: bool = True,
     ) -> None:
         self._diagnosis_engine = DiagnosisEngine(
             use_rag=use_rag,
@@ -40,6 +44,10 @@ class ChatManager:
             gemini_api_key=gemini_api_key,
             rag_top_k=rag_top_k,
             rag_translate_arabic=rag_translate_arabic,
+            use_finetuned_classifier=use_finetuned_classifier,
+            finetuned_model_dir=finetuned_model_dir,
+            classifier_max_length=classifier_max_length,
+            classifier_translate_arabic=classifier_translate_arabic,
         )
         self._therapy_engine = TherapyEngine(
             gemini_api_key=gemini_api_key if gemini_api_key else ""

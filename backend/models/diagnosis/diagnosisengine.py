@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 import re
-import asyncio
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, TYPE_CHECKING
@@ -325,8 +325,79 @@ class ArabicToEnglishTranslator:
             return arabic_text
 
 
-import json
 from app.schemas.ai import AIDiagnosisResponse
+
+
+class FineTunedDiagnosisClassifier:
+    """Load a fine-tuned ClinicalBERT classifier and run local inference."""
+
+    def __init__(self, model_dir: Path | str, max_length: int = 256, device: Optional[str] = None) -> None:
+        try:
+            import importlib
+
+            torch = importlib.import_module("torch")
+            transformers = importlib.import_module("transformers")
+            AutoTokenizer = getattr(transformers, "AutoTokenizer")
+            AutoModelForSequenceClassification = getattr(transformers, "AutoModelForSequenceClassification")
+        except Exception as exc:
+            raise ImportError(
+                "FineTunedDiagnosisClassifier requires 'torch' and 'transformers'."
+            ) from exc
+
+        self._torch = torch
+        self.model_dir = Path(model_dir)
+        self.max_length = max_length
+
+        if not self.model_dir.exists():
+            raise FileNotFoundError(f"Fine-tuned model directory not found: {self.model_dir}")
+
+        label_map_path = self.model_dir / "label_map.json"
+        if not label_map_path.exists():
+            raise FileNotFoundError(f"Missing label_map.json in model directory: {self.model_dir}")
+
+        with label_map_path.open("r", encoding="utf-8") as fh:
+            label_map = json.load(fh)
+
+        raw_id_to_label = label_map.get("id_to_label", {})
+        self.id_to_label = {int(k): v for k, v in raw_id_to_label.items()}
+        self.label_to_id = label_map.get("label_to_id", {})
+
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_dir)
+        self.model = AutoModelForSequenceClassification.from_pretrained(self.model_dir)
+        self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+        self.model = self.model.to(self.device).eval()
+        logger.info("Fine-tuned ClinicalBERT classifier loaded from %s", self.model_dir)
+
+    def predict(self, text: str) -> Dict[str, Any]:
+        inputs = self.tokenizer(
+            text,
+            truncation=True,
+            padding=True,
+            max_length=self.max_length,
+            return_tensors="pt",
+        ).to(self.device)
+
+        with self._torch.no_grad():
+            outputs = self.model(**inputs)
+
+        logits = outputs.logits[0]
+        probs = self._torch.softmax(logits, dim=0)
+        pred_idx = int(self._torch.argmax(probs).item())
+
+        top_probs, top_indices = self._torch.topk(probs, k=min(3, probs.shape[0]))
+        top_predictions = [
+            {
+                "label": self.id_to_label.get(int(idx.item()), str(int(idx.item()))),
+                "confidence": float(score.item()),
+            }
+            for score, idx in zip(top_probs, top_indices)
+        ]
+
+        return {
+            "predicted_label": self.id_to_label.get(pred_idx, str(pred_idx)),
+            "confidence": float(probs[pred_idx].item()),
+            "top_predictions": top_predictions,
+        }
 
 class MedicalRAGAssistant:
     """Full RAG pipeline: ClinicalBERT encoder → FAISS retrieval → Gemini LLM."""
@@ -418,8 +489,15 @@ class DiagnosisEngine:
         gemini_api_key: Optional[str] = None,
         rag_top_k: int = 5,
         rag_translate_arabic: bool = True,
+        use_finetuned_classifier: bool = False,
+        finetuned_model_dir: Optional[Path | str] = None,
+        classifier_max_length: int = 256,
+        classifier_translate_arabic: bool = True,
     ) -> None:
         self._rag_assistant: Optional[MedicalRAGAssistant] = None
+        self._classifier: Optional[FineTunedDiagnosisClassifier] = None
+        self._classifier_translator: Optional[ArabicToEnglishTranslator] = None
+        self._classifier_translate_arabic = classifier_translate_arabic
         self._rag_top_k = rag_top_k
         if use_rag:
             if not faiss_index_dir or not gemini_api_key:
@@ -430,6 +508,21 @@ class DiagnosisEngine:
                 gemini_api_key=gemini_api_key,
                 translate_arabic=rag_translate_arabic,
             )
+        if use_finetuned_classifier:
+            if not finetuned_model_dir:
+                raise ValueError("Fine-tuned classifier requires finetuned_model_dir")
+            self._classifier = FineTunedDiagnosisClassifier(
+                model_dir=finetuned_model_dir,
+                max_length=classifier_max_length,
+            )
+            if classifier_translate_arabic and gemini_api_key:
+                self._classifier_translator = ArabicToEnglishTranslator(
+                    GeminiProvider(api_key=gemini_api_key, model_name="gemini-2.5-flash")
+                )
+            elif classifier_translate_arabic and not gemini_api_key:
+                logger.warning(
+                    "classifier_translate_arabic=True but GEMINI_API_KEY is missing; classifier will use raw input text."
+                )
 
     async def diagnose(self, report: Dict[str, Any]) -> Dict[str, Any]:
         """Analyse *report* and return findings."""
@@ -450,6 +543,25 @@ class DiagnosisEngine:
             rag_out = await self._rag_assistant.query(combined, top_k=self._rag_top_k)
             result["rag_response"] = rag_out["response"]
             result["retrieved_cases"] = rag_out["retrieved_cases"]
+
+        if self._classifier:
+            combined = build_combined_text(report)
+            classifier_query_text = combined
+            translated_from_arabic = False
+
+            if (
+                self._classifier_translate_arabic
+                and self._classifier_translator
+                and self._classifier_translator.is_arabic(combined)
+            ):
+                classifier_query_text = await self._classifier_translator.translate(combined)
+                translated_from_arabic = classifier_query_text != combined
+
+            classifier_prediction = self._classifier.predict(classifier_query_text)
+            classifier_prediction["input_text"] = combined
+            classifier_prediction["query_text"] = classifier_query_text
+            classifier_prediction["translated_from_arabic"] = translated_from_arabic
+            result["classifier_prediction"] = classifier_prediction
 
         return result
 

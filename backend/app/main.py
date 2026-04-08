@@ -33,6 +33,10 @@ async def lifespan(app: FastAPI):
         gemini_api_key=s.gemini_api_key,
         rag_top_k=s.rag_top_k,
         rag_translate_arabic=s.rag_translate_arabic,
+        use_finetuned_classifier=s.use_finetuned_classifier,
+        finetuned_model_dir=s.finetuned_model_dir,
+        classifier_max_length=s.classifier_max_length,
+        classifier_translate_arabic=s.classifier_translate_arabic,
     )
     yield
 

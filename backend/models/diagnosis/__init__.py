@@ -4,6 +4,7 @@ from .diagnosisengine import (
     ArabicToEnglishTranslator,
     DiagnosisEngine,
     EvidenceMapper,
+    FineTunedDiagnosisClassifier,
     build_combined_text,
     diagnose,
 )
@@ -13,5 +14,6 @@ __all__ = [
     "diagnose",
     "DiagnosisEngine",
     "EvidenceMapper",
+    "FineTunedDiagnosisClassifier",
     "build_combined_text",
 ]

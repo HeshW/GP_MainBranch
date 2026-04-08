@@ -44,6 +44,10 @@ def run_once(
     gemini_key: Optional[str] = None,
     rag_top_k: int = 5,
     rag_translate_arabic: bool = True,
+    use_finetuned_classifier: bool = False,
+    finetuned_model_dir: Optional[str] = None,
+    classifier_max_length: int = 256,
+    classifier_translate_arabic: bool = True,
 ) -> Dict[str, Any]:
     manager = ChatManager(
         use_rag=use_rag,
@@ -51,6 +55,10 @@ def run_once(
         gemini_api_key=gemini_key,
         rag_top_k=rag_top_k,
         rag_translate_arabic=rag_translate_arabic,
+        use_finetuned_classifier=use_finetuned_classifier,
+        finetuned_model_dir=finetuned_model_dir,
+        classifier_max_length=classifier_max_length,
+        classifier_translate_arabic=classifier_translate_arabic,
     )
 
     return manager.run_pipeline(image=image, labs=labs, manual_input=manual_input)
@@ -67,6 +75,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--faiss-index-dir", help="FAISS index dir for RAG.")
     parser.add_argument("--gemini-key", help="Gemini API key for RAG.")
     parser.add_argument("--top-k", type=int, default=5, help="Top K for RAG.")
+    parser.add_argument("--use-finetuned-classifier", action="store_true", help="Enable fine-tuned ClinicalBERT classifier.")
+    parser.add_argument("--finetuned-model-dir", help="Path to saved fine-tuned model folder.")
+    parser.add_argument("--classifier-max-length", type=int, default=256, help="Max token length for fine-tuned classifier.")
+    parser.add_argument("--no-classifier-arabic-translate", action="store_true", help="Disable Arabic to English translation before classifier inference.")
     parser.add_argument(
         "--no-rag-arabic-translate",
         action="store_true",
@@ -102,6 +114,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                 gemini_key=args.gemini_key,
                 rag_top_k=args.top_k,
                 rag_translate_arabic=not args.no_rag_arabic_translate,
+                use_finetuned_classifier=args.use_finetuned_classifier,
+                finetuned_model_dir=args.finetuned_model_dir,
+                classifier_max_length=args.classifier_max_length,
+                classifier_translate_arabic=not args.no_classifier_arabic_translate,
             )
 
         if args.no_json:
