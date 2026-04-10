@@ -43,6 +43,19 @@ class SymptomsPipelineRequest(BaseModel):
     low_confidence_threshold: float = Field(0.7, ge=0.0, le=1.0)
 
 
+class DiagnosisOnlyRequest(BaseModel):
+    report: Dict[str, Any] = Field(
+        ...,
+        description="Prepared report payload used by the diagnosis engine.",
+        examples=[{"raw_text": "Fatigue and thirst", "symptoms": ["fatigue", "thirst"], "labs": {}}],
+    )
+
+
+class DiagnosisFromSymptomsRequest(BaseModel):
+    text: str = Field(..., min_length=1, description="Symptoms in Arabic or English.")
+    low_confidence_threshold: float = Field(0.7, ge=0.0, le=1.0)
+
+
 class ErrorResponse(BaseModel):
     detail: str
     code: Optional[str] = None

@@ -1,83 +1,141 @@
+from __future__ import annotations
+
 import json
+import logging
+from typing import Any, Dict, Optional
+
 from app.schemas.ai import AITherapyPlanResponse
+from models.common.ai_provider import GeminiProvider
+
+logger = logging.getLogger(__name__)
+
+NO_FINDINGS_MESSAGE = (
+    "No abnormal diagnostic findings were detected that require an urgent therapy plan. "
+    "Routine clinical follow-up is still recommended."
+)
+
+FALLBACK_MESSAGE = (
+    "Fallback mode: AI-generated therapy guidance is unavailable right now. "
+    "Please review the diagnostic findings with a qualified clinician before acting on them."
+)
+
 
 class TherapyEngine:
-    """Uses Gemini API to generate a professional therapy/treatment plan from a diagnosis."""
-    
-    def __init__(self, gemini_api_key: str, model_name: str = "gemini-2.5-flash"):
+    """Generate a structured therapy plan from diagnosis findings."""
+
+    def __init__(self, gemini_api_key: str, model_name: str = "gemini-2.5-flash") -> None:
         self.api_key_valid = bool(gemini_api_key and "AIza" in gemini_api_key)
         self._provider: Optional[GeminiProvider] = None
-        
+
         if self.api_key_valid:
             self._provider = GeminiProvider(api_key=gemini_api_key, model_name=model_name)
         else:
-            logger.warning("Invalid or missing GEMINI_API_KEY. TherapyEngine will operate in fallback mode.")
+            logger.warning(
+                "Invalid or missing GEMINI_API_KEY. TherapyEngine will operate in fallback mode."
+            )
 
-    async def generate_therapy(self, diagnosis: Dict[str, Any], patient_info: str = "") -> Dict[str, Any]:
-        """Asynchronously generate professional therapy plan recommendations using structured output."""
+    @staticmethod
+    def _format_findings(findings: list[Dict[str, Any]]) -> str:
+        lines: list[str] = []
+        for finding in findings:
+            lines.append(
+                f"- {finding.get('condition', 'Unknown finding')} "
+                f"(severity: {finding.get('severity', 'unknown')}, "
+                f"confidence: {finding.get('confidence', 'unknown')})"
+            )
+            evidence = finding.get("evidence")
+            if evidence:
+                lines.append(f"  Evidence: {evidence}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _fallback_payload(findings: list[Dict[str, Any]], patient_info: str) -> Dict[str, Any]:
+        return {
+            "therapy_plan": FALLBACK_MESSAGE,
+            "structured_therapy": None,
+            "metadata": {
+                "mode": "fallback",
+                "findings_count": len(findings),
+                "patient_info": patient_info or "unknown",
+            },
+        }
+
+    async def generate_therapy(
+        self,
+        diagnosis: Dict[str, Any],
+        patient_info: str = "",
+    ) -> Dict[str, Any]:
+        """Generate therapy guidance using Gemini when available."""
         findings = diagnosis.get("findings", [])
         if not findings:
             return {
-                "therapy_plan": "⚠️ **ملاحظة:** لا توجد نتائج تشخيص غير طبيعية تتطلب خطة علاج مستعجلة، يُنصح بالمتابعة الطبية الدورية."
+                "therapy_plan": NO_FINDINGS_MESSAGE,
+                "structured_therapy": None,
+                "metadata": {
+                    "mode": "no_findings",
+                    "findings_count": 0,
+                    "patient_info": patient_info or "unknown",
+                },
             }
-            
-        findings_text = ""
-        for f in findings:
-            findings_text += f"- **{f.get('condition')}** (الخطورة: {f.get('severity')})\n"
-            findings_text += f"  الدليل: {f.get('evidence')}\n"
 
         if not self.api_key_valid or not self._provider:
-            return {
-                "therapy_plan": (
-                    "⚠️ **تنبيه:** وضع المعاينة فقط (Fallback Mode).\n\n"
-                    f"تم اكتشاف {len(findings)} ملاحظات طبية. "
-                    "يرجى مراجعة طبيب مختص فوراً لتقييم هذه النتائج وتحديد خطة العلاج المناسبة."
-                )
-            }
+            return self._fallback_payload(findings, patient_info)
 
-        prompt = f"""
-        أنت استشاري طبي خبير. بناءً على التشخيص المبدئي الموضح أدناه، قم بإعداد خطة توصيات طبية احترافية وشاملة باللغة العربية.
+        findings_text = self._format_findings(findings)
+        safety = diagnosis.get("safety", {})
 
-        [نتائج التشخيص الطبي]
-        {findings_text}
-        
-        [معلومات إضافية عن المريض]
-        {patient_info if patient_info else "غير متوفرة"}
-        """
-        
+        prompt = (
+            "You are an expert medical consultant.\n"
+            "Generate a conservative therapy and follow-up plan in Arabic based on the "
+            "preliminary findings below.\n\n"
+            "[Diagnostic findings]\n"
+            f"{findings_text}\n\n"
+            "[Safety flags]\n"
+            f"{json.dumps(safety, ensure_ascii=False)}\n\n"
+            "[Patient info]\n"
+            f"{patient_info or 'Unknown'}"
+        )
+
         system_instruction = (
             "You are a helpful and professional Medical Consultant AI. "
             "You must provide medical recommendations in Arabic. "
-            "Your response must be a valid JSON object matching the requested schema. "
-            "Ensure the output reflects clinical excellence and professional tone."
+            "Be conservative, emphasize clinician review, and return valid JSON "
+            "matching the requested schema."
         )
 
         try:
             response_json = await self._provider.generate_content(
                 prompt,
                 system_instruction=system_instruction,
-                response_model=AITherapyPlanResponse
+                response_model=AITherapyPlanResponse,
             )
-            
             structured_data = json.loads(response_json)
-            
-            # Reconstruct therapy_plan as markdown for backward compatibility or display
-            recommendations = "\n".join([f"- **{r['category']}**: {r['description']} ({r['urgency']})" for r in structured_data['recommendations']])
-            lifestyle = structured_data['lifestyle_advice']
-            emergency = "\n".join([f"- {s}" for s in structured_data['emergency_signs']])
-            
+
+            recommendations = "\n".join(
+                [
+                    f"- **{item['category']}**: {item['description']} ({item['urgency']})"
+                    for item in structured_data["recommendations"]
+                ]
+            )
+            emergency = "\n".join(f"- {item}" for item in structured_data["emergency_signs"])
+
             therapy_markdown = (
                 f"{structured_data['disclaimer']}\n\n"
-                f"### تحليل الحالة\n{structured_data['clinical_analysis']}\n\n"
-                f"### التوصيات العلاجية\n{recommendations}\n\n"
-                f"### نمط الحياة والتغذية\n{lifestyle}\n\n"
-                f"### علامات تستوجب الطوارئ\n{emergency}"
+                f"### Clinical Analysis\n{structured_data['clinical_analysis']}\n\n"
+                f"### Recommendations\n{recommendations}\n\n"
+                f"### Lifestyle Advice\n{structured_data['lifestyle_advice']}\n\n"
+                f"### Emergency Signs\n{emergency}"
             )
 
             return {
                 "therapy_plan": therapy_markdown,
-                "structured_therapy": structured_data
+                "structured_therapy": structured_data,
+                "metadata": {
+                    "mode": "llm",
+                    "findings_count": len(findings),
+                    "patient_info": patient_info or "unknown",
+                },
             }
-        except Exception as e:
-            logger.error(f"Therapy generation failed: {e}")
-            return {"therapy_plan": "❌ تعذر توليد خطة العلاج حالياً بشكل منظم. يرجى مراجعة سجلات النظام."}
+        except Exception as exc:
+            logger.error("Therapy generation failed: %s", exc)
+            return self._fallback_payload(findings, patient_info)

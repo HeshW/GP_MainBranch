@@ -7,22 +7,39 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-DEFAULT_SYMPTOMS = [
-    "fatigue",
-    "weakness",
-    "dizziness",
-    "lightheaded",
-    "nausea",
-    "vomit",
-    "fever",
-    "cough",
-    "shortness of breath",
-    "chest pain",
-    "headache",
-    "abdomen",
-    "pain",
-    "thirst",
-    "polyuria",
+SYMPTOM_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
+    ("fatigue", ("fatigue", "tired", "tiredness", "exhaustion")),
+    ("weakness", ("weakness", "weak", "fatigable weakness")),
+    ("dizziness", ("dizziness", "dizzy", "vertigo")),
+    ("lightheaded", ("lightheaded", "lightheadedness")),
+    ("nausea", ("nausea", "nauseated")),
+    ("vomiting", ("vomiting", "vomit", "vomiting")),
+    ("fever", ("fever", "febrile", "high temperature")),
+    ("cough", ("cough", "coughing")),
+    ("productive cough", ("productive cough",)),
+    ("dry cough", ("dry cough",)),
+    ("shortness of breath", ("shortness of breath", "dyspnea", "breathlessness")),
+    ("wheezing", ("wheezing", "wheeze")),
+    ("chest pain", ("chest pain", "retrosternal pain", "pleuritic chest pain")),
+    ("chest tightness", ("chest tightness", "tight chest")),
+    ("palpitations", ("palpitations", "rapid heartbeat", "irregular heartbeat", "tachycardia")),
+    ("sore throat", ("sore throat", "throat pain")),
+    ("hoarseness", ("hoarseness", "hoarse voice", "voice hoarseness")),
+    ("headache", ("headache", "head pain")),
+    ("abdominal pain", ("abdominal pain", "abdomen pain", "epigastric pain", "stomach pain")),
+    ("loss of appetite", ("loss of appetite", "poor appetite", "reduced appetite")),
+    ("weight loss", ("weight loss", "unexplained weight loss")),
+    ("nasal congestion", ("nasal congestion", "stuffy nose")),
+    ("facial pressure", ("facial pressure", "sinus pressure")),
+    ("ear pain", ("ear pain", "otalgia")),
+    ("flushing", ("flushing", "flushed")),
+    ("tingling", ("tingling", "pins and needles", "paresthesia")),
+    ("gait difficulty", ("gait difficulty", "difficulty walking", "trouble walking")),
+    ("ptosis", ("ptosis", "drooping eyelid", "droopy eyelid")),
+    ("difficulty speaking", ("difficulty speaking", "slurred speech", "speech difficulty")),
+    ("reflux", ("reflux", "acid reflux", "heartburn", "sour taste")),
+    ("thirst", ("thirst", "excessive thirst")),
+    ("polyuria", ("polyuria", "frequent urination")),
 ]
 
 UNIT_PATTERNS = [
@@ -131,11 +148,15 @@ def _extract_symptoms(raw_text: str) -> List[Dict[str, Any]]:
     text = raw_text.lower()
     found: List[Dict[str, Any]] = []
 
-    # direct keyword extraction that uses default list
-    for symptom in DEFAULT_SYMPTOMS:
-        pattern = re.compile(rf"\b{re.escape(symptom)}(?:s)?\b", re.IGNORECASE)
-        if pattern.search(text):
-            found.append({"symptom": symptom, "source": symptom, "confidence": 0.8})
+    for canonical, aliases in SYMPTOM_PATTERNS:
+        matched_alias = None
+        for alias in aliases:
+            pattern = re.compile(rf"\b{re.escape(alias)}\b", re.IGNORECASE)
+            if pattern.search(text):
+                matched_alias = alias
+                break
+        if matched_alias:
+            found.append({"symptom": canonical, "source": matched_alias, "confidence": 0.85})
 
     # detect negated symptoms
     negation_pattern = re.compile(r"\b(no|denies?|without)\s+([a-z\s]+?)\b(?:[.,;]|$)", re.IGNORECASE)

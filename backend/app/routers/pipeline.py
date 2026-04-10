@@ -9,7 +9,12 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.deps import get_chat_manager
-from app.schemas.pipeline import LabsPipelineRequest, SymptomsPipelineRequest
+from app.schemas.pipeline import (
+    DiagnosisFromSymptomsRequest,
+    DiagnosisOnlyRequest,
+    LabsPipelineRequest,
+    SymptomsPipelineRequest,
+)
 from manager.chat_manager import ChatManager
 
 router = APIRouter(tags=["pipeline"])
@@ -58,6 +63,35 @@ async def pipeline_image(
             pass
 
 
+@router.post("/pipeline/ocr")
+async def pipeline_ocr(
+    file: UploadFile = File(..., description="Medical report image (PNG, JPEG, ...)."),
+    manager: ChatManager = Depends(get_chat_manager),
+) -> Dict[str, Any]:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Missing filename")
+    suffix = os.path.splitext(file.filename)[1].lower() or ".png"
+    if suffix not in (".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff"):
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported image type. Use PNG, JPEG, or similar.",
+        )
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    try:
+        tmp.write(data)
+        tmp.flush()
+        tmp.close()
+        return await manager.run_ocr_only(tmp.name)
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+
 @router.post("/pipeline/symptoms")
 async def pipeline_symptoms(
     body: SymptomsPipelineRequest,
@@ -69,3 +103,22 @@ async def pipeline_symptoms(
             low_confidence_threshold=body.low_confidence_threshold,
         )
     return await manager.run_pipeline(manual_input={"symptoms": body.text})
+
+
+@router.post("/pipeline/diagnosis")
+async def pipeline_diagnosis(
+    body: DiagnosisOnlyRequest,
+    manager: ChatManager = Depends(get_chat_manager),
+) -> Dict[str, Any]:
+    return await manager.run_diagnosis_only(body.report)
+
+
+@router.post("/pipeline/diagnosis/symptoms")
+async def pipeline_diagnosis_from_symptoms(
+    body: DiagnosisFromSymptomsRequest,
+    manager: ChatManager = Depends(get_chat_manager),
+) -> Dict[str, Any]:
+    return await manager.run_from_symptoms(
+        body.text,
+        low_confidence_threshold=body.low_confidence_threshold,
+    )

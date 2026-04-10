@@ -17,3 +17,20 @@ def test_parse_symptoms_negation():
     text = "No fever, denies cough, but has chest pain and dizziness."
     parsed = parse_symptoms(text)
     assert any(sym.get("negated") for sym in parsed["symptoms"])
+
+
+def test_parse_symptoms_detects_broader_human_medical_phrases():
+    text = (
+        "Patient reports palpitations, wheezing, chest tightness, sore throat, "
+        "hoarseness, reflux, and shortness of breath."
+    )
+    parsed = parse_symptoms(text)
+    found = {sym["symptom"] for sym in parsed["symptoms"]}
+
+    assert "palpitations" in found
+    assert "wheezing" in found
+    assert "chest tightness" in found
+    assert "sore throat" in found
+    assert "hoarseness" in found
+    assert "reflux" in found
+    assert "shortness of breath" in found

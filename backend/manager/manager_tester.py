@@ -1,4 +1,4 @@
-"""Console helper for testing the ChatManager pipeline in PR#3."""
+"""Console helper for exercising the ChatManager pipeline."""
 
 from __future__ import annotations
 
@@ -7,11 +7,13 @@ import json
 import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
-import os, sys
+
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
 from manager.chat_manager import ChatManager
+from manager.runtime import run_async
 
 
 def parse_labs(labs_json: Optional[str], labs_file: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -20,12 +22,14 @@ def parse_labs(labs_json: Optional[str], labs_file: Optional[str]) -> Optional[D
             return json.loads(labs_json)
         except json.JSONDecodeError as exc:
             raise ValueError(f"Invalid labs JSON: {exc}") from exc
+
     if labs_file:
         path = Path(labs_file)
         if not path.exists():
             raise FileNotFoundError(f"Labs file not found: {labs_file}")
-        with path.open("r", encoding="utf-8") as fh:
-            return json.load(fh)
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+
     return None
 
 
@@ -60,12 +64,11 @@ def run_once(
         classifier_max_length=classifier_max_length,
         classifier_translate_arabic=classifier_translate_arabic,
     )
-
-    return manager.run_pipeline(image=image, labs=labs, manual_input=manual_input)
+    return run_async(manager.run_pipeline(image=image, labs=labs, manual_input=manual_input))
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Manager tester for OCR + Diagnosis pipeline")
+    parser = argparse.ArgumentParser(description="Manager tester for OCR + diagnosis pipeline")
     parser.add_argument("--image", help="Path to a report image.")
     parser.add_argument("--labs", help="JSON string of labs, e.g. '{\"glucose\":140.0}'")
     parser.add_argument("--labs-file", help="Path to a JSON file with labs.")
@@ -78,13 +81,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--use-finetuned-classifier", action="store_true", help="Enable fine-tuned ClinicalBERT classifier.")
     parser.add_argument("--finetuned-model-dir", help="Path to saved fine-tuned model folder.")
     parser.add_argument("--classifier-max-length", type=int, default=256, help="Max token length for fine-tuned classifier.")
-    parser.add_argument("--no-classifier-arabic-translate", action="store_true", help="Disable Arabic to English translation before classifier inference.")
-    parser.add_argument(
-        "--no-rag-arabic-translate",
-        action="store_true",
-        help="Disable Gemini Arabic→English translation before RAG encoding.",
-    )
-    parser.add_argument("--no-json", action="store_true", help="Disable JSON output formatting (debug print only).")
+    parser.add_argument("--no-classifier-arabic-translate", action="store_true", help="Disable Arabic-to-English translation before classifier inference.")
+    parser.add_argument("--no-rag-arabic-translate", action="store_true", help="Disable Arabic-to-English translation before RAG encoding.")
+    parser.add_argument("--no-json", action="store_true", help="Disable JSON output formatting.")
     args = parser.parse_args(argv)
 
     try:
@@ -100,10 +99,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         if args.use_symptom_parser and args.symptoms:
             from manager.diagnosis_adapter import run_from_symptoms
 
-            result = run_from_symptoms(
-                args.symptoms,
-                low_confidence_threshold=0.7,
-            )
+            result = run_from_symptoms(args.symptoms, low_confidence_threshold=0.7)
         else:
             result = run_once(
                 image=args.image,
@@ -124,7 +120,6 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(result)
         else:
             print_result(result)
-
         return 0
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)

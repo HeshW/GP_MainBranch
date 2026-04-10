@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
     app.state.chat_manager = ChatManager(
         use_rag=s.use_rag,
         faiss_index_dir=s.faiss_index_dir,
+        clinicalbert_model_dir=s.clinicalbert_model_dir,
         gemini_api_key=s.gemini_api_key,
         rag_top_k=s.rag_top_k,
         rag_translate_arabic=s.rag_translate_arabic,

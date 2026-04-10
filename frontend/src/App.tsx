@@ -1,17 +1,16 @@
 import { useState } from "react";
-import { useAnalysis } from "@/hooks/useAnalysis";
-import { useMeta } from "@/hooks/useMeta";
-import { Tab } from "@/types";
-
-import { AppHeader } from "@/components/layout/AppHeader";
-import { TabNavigation } from "@/components/tabs/TabNavigation";
-import { LabAnalysisTab } from "@/components/tabs/LabAnalysisTab";
-import { ImageAnalysisTab } from "@/components/tabs/ImageAnalysisTab";
-import { SymptomsAnalysisTab } from "@/components/tabs/SymptomsAnalysisTab";
-import { ResultView } from "@/components/results/ResultView";
+import {
+  ImageAnalysisPanel,
+  LabAnalysisPanel,
+  SymptomsAnalysisPanel,
+  TabNavigation,
+  useAnalysis,
+} from "@/features/analysis";
+import { ResultView } from "@/features/results";
+import { AppHeader, useMeta, AnalysisTab } from "@/shared";
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("labs");
+  const [tab, setTab] = useState<AnalysisTab>("labs");
   const { meta, metaErr } = useMeta();
   const { loading, result, error, runLabs, runImage, runSymptoms } = useAnalysis();
 
@@ -22,25 +21,17 @@ export default function App() {
       <main className="app-main">
         <TabNavigation currentTab={tab} onTabChange={setTab} />
 
-        {tab === "labs" && (
-          <LabAnalysisTab loading={loading} onRun={runLabs} />
-        )}
-
-        {tab === "image" && (
-          <ImageAnalysisTab loading={loading} onRun={runImage} />
-        )}
-
+        {tab === "labs" && <LabAnalysisPanel loading={loading} onRun={runLabs} />}
+        {tab === "image" && <ImageAnalysisPanel loading={loading} onRun={runImage} />}
         {tab === "symptoms" && (
-          <SymptomsAnalysisTab loading={loading} onRun={runSymptoms} />
+          <SymptomsAnalysisPanel loading={loading} onRun={runSymptoms} />
         )}
 
         <ResultView error={error} result={result} />
       </main>
 
       <p className="footer-note">
-        Educational prototype only — not for clinical use. Start the API with{" "}
-        <code>cd backend &amp;&amp; uvicorn app.main:app --reload</code>, then{" "}
-        <code>npm run dev</code> in <code>frontend/</code>.
+        Educational prototype only, not for clinical use. Start the API with <code>cd backend &amp;&amp; uvicorn app.main:app --reload</code>, then run <code>npm run dev</code> inside <code>frontend/</code>.
       </p>
     </div>
   );

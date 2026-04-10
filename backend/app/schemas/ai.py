@@ -39,3 +39,13 @@ class AITherapyPlanResponse(BaseModel):
     lifestyle_advice: str = Field(..., description="Practical advice on nutrition, exercise, or habits.")
     emergency_signs: List[str] = Field(..., description="Specific red flags that require immediate emergency care.")
     disclaimer: str = Field(..., description="Mandatory medical safety disclaimer.")
+
+
+class AIClinicalResponse(BaseModel):
+    """Structured final medical response synthesized after fusion."""
+
+    diagnosis_summary: str = Field(..., description="Short explanation of the most likely diagnosis and why.")
+    patient_friendly_explanation: str = Field(..., description="Clear explanation suitable for the patient.")
+    recommended_next_steps: List[str] = Field(..., description="Conservative next clinical steps or follow-up actions.")
+    red_flags: List[str] = Field(..., description="Urgent red-flag symptoms that require immediate care.")
+    disclaimer: str = Field(..., description="Mandatory medical safety disclaimer.")

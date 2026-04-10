@@ -1,21 +1,22 @@
-"""Manager orchestrator for OCR + Diagnosis pipelines.
-
-This module is the core of PR#1. It provides a simple orchestrator interface
-for:
- - image input (OCR -> Diagnosis)
- - manual labs input (Diagnosis only)
- - a placeholder manual symptom path
-
-Later phases can add therapy and chat state.
-"""
+"""Manager orchestrator for OCR + diagnosis, therapy, and chat flows."""
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Union
 
+from manager.chat_support import (
+    CHAT_ERROR_MESSAGE,
+    STREAM_ERROR_MESSAGE,
+    SYSTEM_INSTRUCTION,
+    build_chat_prompt,
+    build_unavailable_payload,
+)
+from manager.pipeline_support import build_manual_input_from_validated, build_report
+from manager.session_store import ChatSessionStore
 from models.diagnosis import DiagnosisEngine
 from models.therapy import TherapyEngine
 
@@ -23,13 +24,14 @@ logger = logging.getLogger(__name__)
 
 
 class ChatManager:
-    """Orchestrate OCR + Diagnosis for the GP project using async processing."""
+    """Public facade for the project's diagnosis pipeline and chat tools."""
 
     def __init__(
         self,
         *,
         use_rag: bool = False,
         faiss_index_dir: Optional[Path | str] = None,
+        clinicalbert_model_dir: Optional[Path | str] = None,
         gemini_api_key: Optional[str] = None,
         rag_top_k: int = 5,
         rag_translate_arabic: bool = True,
@@ -41,6 +43,7 @@ class ChatManager:
         self._diagnosis_engine = DiagnosisEngine(
             use_rag=use_rag,
             faiss_index_dir=faiss_index_dir,
+            clinicalbert_model_dir=clinicalbert_model_dir,
             gemini_api_key=gemini_api_key,
             rag_top_k=rag_top_k,
             rag_translate_arabic=rag_translate_arabic,
@@ -52,62 +55,64 @@ class ChatManager:
         self._therapy_engine = TherapyEngine(
             gemini_api_key=gemini_api_key if gemini_api_key else ""
         )
-        
-        # In-memory chat sessions
-        self._chat_sessions: Dict[str, List[Dict[str, str]]] = {}
+        self._chat_sessions = ChatSessionStore()
 
     async def run_ocr(self, image: Union[str, Path, Any]) -> Dict[str, Any]:
-        """Run OCR on an image (async wrapper for potential future async OCR)."""
-        from models.ocr.engine import OCREngine  # lazy import
-        # For now, OCR is blocking, so we run in a thread if needed, 
-        # but the engine itself is relatively fast.
+        """Run OCR on an image."""
+        from models.ocr.engine import OCREngine
+
         engine = OCREngine()
         return engine.extract(image)
 
-    async def _build_report(
+    async def prepare_report(
         self,
+        *,
         image: Optional[Union[str, Path, Any]] = None,
         labs: Optional[Dict[str, Any]] = None,
         manual_input: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[Dict[str, Any], List[str]]:
-        """Combine inputs into a diagnosis report structure asynchronously."""
-        report: Dict[str, Any] = {}
-        warnings: List[str] = []
+    ) -> Dict[str, Any]:
+        """Build a normalized report payload without running diagnosis."""
+        report, warnings = await build_report(
+            run_ocr=self.run_ocr,
+            image=image,
+            labs=labs,
+            manual_input=manual_input,
+        )
+        return {
+            "status": "ok",
+            "report": report,
+            "warnings": warnings,
+        }
 
-        if image is not None:
-            try:
-                ocr_data = await self.run_ocr(image)
-                report.update(ocr_data or {})
-            except Exception as exc:
-                warnings.append(f"OCR failed: {exc}")
-                logger.warning("OCR failed: %s", exc, exc_info=True)
-
-        if labs is not None:
-            if not isinstance(labs, dict):
-                raise TypeError("labs must be a dict mapping lab keys to values")
-            report["labs"] = labs
-
-        # Ensure labs exists
-        report.setdefault("labs", {})
-
-        if manual_input:
-            if not isinstance(manual_input, dict):
-                raise TypeError("manual_input must be a dict")
-
-            symptoms = manual_input.get("symptoms")
-            if symptoms:
-                report["raw_text"] = report.get("raw_text", "") + " " + str(symptoms)
-            manual_labs = manual_input.get("labs")
-            if manual_labs:
-                if not isinstance(manual_labs, dict):
-                    raise TypeError("manual_input['labs'] must be a dict")
-                report["labs"] = {**report.get("labs", {}), **manual_labs}
-
-        return report, warnings
+    async def run_ocr_only(self, image: Union[str, Path, Any]) -> Dict[str, Any]:
+        """Run OCR only and return the extracted report fields."""
+        start = time.time()
+        ocr = await self.run_ocr(image)
+        return {
+            "status": "ok",
+            "ocr": ocr,
+            "elapsed_ms": round((time.time() - start) * 1000, 1),
+        }
 
     async def run_diagnosis(self, report: Dict[str, Any]) -> Dict[str, Any]:
         """Run diagnosis on a prepared report."""
         return await self._diagnosis_engine.diagnose(report)
+
+    async def run_diagnosis_only(self, report: Dict[str, Any]) -> Dict[str, Any]:
+        """Run diagnosis and therapy on an already prepared report."""
+        start = time.time()
+        diagnosis = await self.run_diagnosis(report)
+        therapy = await self._therapy_engine.generate_therapy(
+            diagnosis,
+            "Age: Unknown, Sex: Unknown",
+        )
+        return {
+            "status": "ok",
+            "report": report,
+            "diagnosis": diagnosis,
+            "therapy": therapy,
+            "elapsed_ms": round((time.time() - start) * 1000, 1),
+        }
 
     async def run_pipeline(
         self,
@@ -116,27 +121,19 @@ class ChatManager:
         labs: Optional[Dict[str, Any]] = None,
         manual_input: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Run end-to-end pipeline asynchronously."""
+        """Run the end-to-end OCR/diagnosis/therapy pipeline."""
         start = time.time()
-
-        report, warnings = await self._build_report(
-            image=image,
-            labs=labs,
-            manual_input=manual_input,
-        )
-
-        diagnosis = await self.run_diagnosis(report)
-        
-        # Generate Therapy Plan based on Diagnosis
-        patient_info = "Age: Unknown, Sex: Unknown" 
-        therapy_result = await self._therapy_engine.generate_therapy(diagnosis, patient_info)
+        prepared = await self.prepare_report(image=image, labs=labs, manual_input=manual_input)
+        report = prepared["report"]
+        warnings = prepared["warnings"]
+        diagnosis_result = await self.run_diagnosis_only(report)
 
         return {
             "status": "ok",
             "id": None,
             "ocr": report if image is not None else None,
-            "diagnosis": diagnosis,
-            "therapy": therapy_result,
+            "diagnosis": diagnosis_result["diagnosis"],
+            "therapy": diagnosis_result["therapy"],
             "warnings": warnings,
             "elapsed_ms": round((time.time() - start) * 1000, 1),
         }
@@ -147,114 +144,78 @@ class ChatManager:
         *,
         low_confidence_threshold: float = 0.7,
     ) -> Dict[str, Any]:
-        """Convert free-text symptoms into structured report + run diagnosis."""
+        """Parse free-text symptoms into structured diagnosis input."""
         from manager.symptom_parser import parse_symptoms
+        from manager.symptom_normalizer import build_normalized_symptom_text
         from manager.symptom_validator import validate_parsed
 
         parsed = parse_symptoms(text)
-        validated = validate_parsed(parsed, low_confidence_threshold=low_confidence_threshold)
-
-        manual_input = {
-            "symptoms": " ".join(validated.get("symptoms", [])),
-            "labs": {k: v["value"] for k, v in validated.get("labs", {}).items()},
-        }
+        validated = validate_parsed(
+            parsed,
+            low_confidence_threshold=low_confidence_threshold,
+        )
+        normalized_text = build_normalized_symptom_text(parsed, validated)
+        validated["raw_text"] = normalized_text
+        manual_input = build_manual_input_from_validated(validated)
 
         pipeline_result = await self.run_pipeline(manual_input=manual_input)
-        pipeline_result.update({
-            "parsed": parsed,
-            "validated": validated,
-            "review_required": validated.get("review_required", False)
-        })
-
+        pipeline_result.update(
+            {
+                "parsed": parsed,
+                "validated": validated,
+                "normalized_text": normalized_text,
+                "review_required": validated.get("review_required", False),
+            }
+        )
         return pipeline_result
 
     async def run_chat(self, session_id: str, message: str) -> Dict[str, Any]:
-        """Handle chat conversation with memory synchronously using AIProvider."""
+        """Generate a non-streaming chat reply with lightweight session memory."""
         if not self._therapy_engine.api_key_valid or not self._therapy_engine._provider:
-            return {
-                "session_id": session_id,
-                "message": message,
-                "response": "عذراً، نظام المحادثة غير متاح حالياً. يرجى التحقق من إعدادات API."
-            }
-            
-        if session_id not in self._chat_sessions:
-            self._chat_sessions[session_id] = []
-            
-        history = self._chat_sessions[session_id]
-        history.append({"role": "user", "content": message})
-        
-        system_instruction = (
-            "أنت استشاري طبي ذكي ولطيف. قدم إجابات دقيقة ومهنية للمرضى. "
-            "أكد دائماً على ضرورة استشارة الطبيب المختص. "
-            "إذا سُئلت عن مطورك، أجب بفخر: 'مطوري هو Mr.Bondo2'."
-        )
-        
-        # Build prompt from history
-        context = ""
-        for msg in history[-8:]: # Last 8 messages for context
-            role_tag = "المريض" if msg["role"] == "user" else "الطبيب"
-            context += f"{role_tag}: {msg['content']}\n"
-            
-        prompt = f"سياق المحادثة:\n{context}\nرد الطبيب باللغة العربية:"
+            return build_unavailable_payload(session_id, message)
+
+        history = self._chat_sessions.append(session_id, "user", message)
+        prompt = build_chat_prompt(history)
 
         try:
             reply_text = await self._therapy_engine._provider.generate_content(
-                prompt, 
-                system_instruction=system_instruction
+                prompt,
+                system_instruction=SYSTEM_INSTRUCTION,
             )
-        except Exception as e:
-            logger.error(f"Chat failed: {e}")
-            reply_text = "عذراً، حدث خطأ تقني في معالجة طلبك. يرجى المحاولة لاحقاً."
-            
-        history.append({"role": "model", "content": reply_text})
-        
-        # Keep clean memory
-        if len(history) > 12:
-            self._chat_sessions[session_id] = history[-10:]
+        except Exception as exc:
+            logger.error("Chat failed: %s", exc)
+            reply_text = CHAT_ERROR_MESSAGE
 
+        self._chat_sessions.append(session_id, "model", reply_text)
         return {
             "session_id": session_id,
             "message": message,
             "response": reply_text,
         }
 
-    async def stream_chat(self, session_id: str, message: str) -> AsyncGenerator[str, None]:
+    async def stream_chat(
+        self,
+        session_id: str,
+        message: str,
+    ) -> AsyncGenerator[str, None]:
         """Stream a chat response chunk by chunk."""
         if not self._therapy_engine.api_key_valid or not self._therapy_engine._provider:
-            yield "عذراً، نظام المحادثة غير متاح حالياً."
+            yield build_unavailable_payload(session_id, message)["response"]
             return
 
-        if session_id not in self._chat_sessions:
-            self._chat_sessions[session_id] = []
-            
-        history = self._chat_sessions[session_id]
-        history.append({"role": "user", "content": message})
-        
-        system_instruction = (
-            "أنت استشاري طبي ذكي ولطيف. قدم إجابات دقيقة ومهنية للمرضى. "
-            "أكد دائماً على ضرورة استشارة الطبيب المختص. "
-            "إذا سُئلت عن مطورك، أجب بفخر: 'مطوري هو Mr.Bondo2'."
-        )
-        
-        context = ""
-        for msg in history[-8:]: 
-            role_tag = "المريض" if msg["role"] == "user" else "الطبيب"
-            context += f"{role_tag}: {msg['content']}\n"
-            
-        prompt = f"سياق المحادثة:\n{context}\nرد الطبيب باللغة العربية:"
+        history = self._chat_sessions.append(session_id, "user", message)
+        prompt = build_chat_prompt(history)
 
-        full_response = []
+        full_response: list[str] = []
         try:
             async for chunk in self._therapy_engine._provider.generate_stream(
-                prompt, 
-                system_instruction=system_instruction
+                prompt,
+                system_instruction=SYSTEM_INSTRUCTION,
             ):
                 full_response.append(chunk)
                 yield chunk
-        except Exception as e:
-            logger.error(f"Stream Chat failed: {e}")
-            yield "❌ حدث خطأ أثناء بث الرد."
-            
-        history.append({"role": "model", "content": "".join(full_response)})
-        if len(history) > 12:
-            self._chat_sessions[session_id] = history[-10:]
+        except Exception as exc:
+            logger.error("Stream chat failed: %s", exc)
+            yield STREAM_ERROR_MESSAGE
+
+        self._chat_sessions.append(session_id, "model", "".join(full_response))

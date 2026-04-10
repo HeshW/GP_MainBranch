@@ -1,4 +1,5 @@
 from manager.chat_manager import ChatManager
+from manager.runtime import run_async
 
 
 def test_run_from_symptoms_integration_with_manager(monkeypatch):
@@ -14,13 +15,13 @@ def test_run_from_symptoms_integration_with_manager(monkeypatch):
         def __init__(self, *args, **kwargs):
             pass
 
-        def diagnose(self, report):
+        async def diagnose(self, report):
             assert report["labs"]["glucose"] == 150.0
             assert "fatigue" in report.get("raw_text", "")
             return sample_diagnosis
 
     monkeypatch.setattr(manager, "_diagnosis_engine", StubDiagnosisEngine())
-    result = manager.run_from_symptoms("Patient has fatigue and glucose 150 mg/dL")
+    result = run_async(manager.run_from_symptoms("Patient has fatigue and glucose 150 mg/dL"))
 
     assert result["status"] == "ok"
     assert result["diagnosis"] == sample_diagnosis

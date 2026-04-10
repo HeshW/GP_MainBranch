@@ -21,10 +21,11 @@ def health() -> HealthResponse:
 def meta() -> MetaResponse:
     s = get_settings()
     faiss_ok = bool(s.faiss_index_dir and Path(s.faiss_index_dir).is_dir())
+    clinicalbert_ok = bool(s.clinicalbert_model_dir and Path(s.clinicalbert_model_dir).is_dir())
     finetuned_ok = bool(s.finetuned_model_dir and Path(s.finetuned_model_dir).is_dir())
     return MetaResponse(
         api_version=s.api_version,
-        rag_enabled=bool(s.use_rag and faiss_ok and s.gemini_api_key),
+        rag_enabled=bool(s.use_rag and faiss_ok and clinicalbert_ok),
         faiss_configured=faiss_ok,
         finetuned_classifier_enabled=bool(s.use_finetuned_classifier and finetuned_ok),
         finetuned_model_configured=finetuned_ok,

@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     # RAG (optional — requires FAISS index + Gemini key on disk / env)
     use_rag: bool = False
     faiss_index_dir: Optional[str] = None
+    clinicalbert_model_dir: Optional[str] = None
     gemini_api_key: Optional[str] = None
     rag_top_k: int = 5
     rag_translate_arabic: bool = True

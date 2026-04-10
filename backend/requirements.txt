@@ -3,3 +3,4 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 python-multipart>=0.0.9
 pydantic-settings>=2.6.0
+google-genai>=1.71.0

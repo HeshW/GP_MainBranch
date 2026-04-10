@@ -1,13 +1,8 @@
-"""models/diagnosis — public API for the diagnosis engine."""
+"""models/diagnosis - public API for the diagnosis engine."""
 
-from .diagnosisengine import (
-    ArabicToEnglishTranslator,
-    DiagnosisEngine,
-    EvidenceMapper,
-    FineTunedDiagnosisClassifier,
-    build_combined_text,
-    diagnose,
-)
+from .diagnosisengine import DiagnosisEngine, diagnose
+from .rag import ArabicToEnglishTranslator, FineTunedDiagnosisClassifier
+from .text import EvidenceMapper, build_combined_text
 
 __all__ = [
     "ArabicToEnglishTranslator",

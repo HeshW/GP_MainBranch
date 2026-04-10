@@ -1,491 +1,68 @@
-"""models/diagnosis/diagnosisengine.py
-
-Production diagnosis engine derived from models/diagnosis/diagnosisproto.ipynb.
-
-Two diagnosis paths
--------------------
-Lightweight (default)
-    Rule-based lab-value threshold analysis — no heavy dependencies.
-    Works directly on any ``OCREngine.extract()`` output dict.
-
-RAG (opt-in, ``use_rag=True``)
-    ClinicalBERT (mean pooling, matching the prototype notebook) + FAISS
-    vector search + Gemini LLM, with optional Arabic→English medical
-    translation before encoding.  Requires a pre-built FAISS index directory
-    and a Gemini API key.  Heavy dependencies (torch, transformers,
-    faiss-cpu, google-generativeai) are imported lazily; the lightweight path
-    is fully usable without them.
-
-Public API
-----------
-``diagnose(report, ...)``         module-level convenience function
-``DiagnosisEngine``               stateful engine (useful for repeated RAG queries)
-``build_combined_text(report)``   OCR dict → free-text patient summary for embedding
-``EvidenceMapper``                evidence code → human-readable text (from prototype)
-"""
+"""Production diagnosis engine orchestrating AI-first diagnosis with rule safety checks."""
 
 from __future__ import annotations
 
-import logging
-import re
-import json
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional
+
+import logging
 
 from models.common.ai_provider import GeminiProvider
+from .rag import (
+    ArabicToEnglishTranslator,
+    ClinicalBERTEmbedder,
+    FineTunedDiagnosisClassifier,
+    MedicalCaseSearcher,
+    MedicalRAGAssistant,
+)
+from .rules import diagnose_from_labs, diagnose_from_symptoms
+from .synthesis import DiagnosisResponseSynthesizer
+from .text import build_combined_text
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Internal data structures
-# ---------------------------------------------------------------------------
-
-@dataclass
-class _Finding:
-    condition: str
-    confidence: str   # "high" | "moderate" | "low"
-    evidence: str
-    severity: str     # "critical" | "high" | "moderate" | "low" | "info"
-
-
-import yaml
-
-@dataclass
-class _Rule:
-    """A single threshold-based clinical rule loaded from YAML."""
-
-    lab: str          # canonical lab key
-    condition: str    # human-readable name
-    operator: str     # 'lt', 'gt', 'le', 'ge', 'range', etc.
-    evidence_fmt: str # format string
-    confidence: str = "moderate"
-    severity: str = "moderate"
-    limit: Optional[float] = None
-    min_val: Optional[float] = None
-    max_val: Optional[float] = None
-
-    def matches(self, val: float) -> bool:
-        """Evaluate rule criteria against a value."""
-        if self.operator == "lt": return val < self.limit
-        if self.operator == "le": return val <= self.limit
-        if self.operator == "gt": return val > self.limit
-        if self.operator == "ge": return val >= self.limit
-        if self.operator == "eq": return val == self.limit
-        if self.operator == "range":
-            return (self.min_val <= val < self.max_val) if self.min_val is not None and self.max_val is not None else False
-        return False
-
-
-def _load_clinical_rules() -> List[_Rule]:
-    """Load and parse rules from clinical_rules.yaml."""
-    rules_path = Path(__file__).parent / "clinical_rules.yaml"
-    if not rules_path.exists():
-        logger.warning("clinical_rules.yaml not found at %s. No threshold rules loaded.", rules_path)
-        return []
-
-    try:
-        with open(rules_path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-            raw_rules = data.get("rules", [])
-            
-        parsed = []
-        for r in raw_rules:
-            parsed.append(_Rule(
-                lab=r["lab"],
-                condition=r["condition"],
-                operator=r["operator"],
-                evidence_fmt=r["evidence_fmt"],
-                confidence=r.get("confidence", "moderate"),
-                severity=r.get("severity", "moderate"),
-                limit=r.get("limit"),
-                min_val=r.get("min"),
-                max_val=r.get("max")
-            ))
-        logger.info("Loaded %d clinical rules from YAML", len(parsed))
-        return parsed
-    except Exception as e:
-        logger.error("Failed to load clinical rules: %s", e)
-        return []
-
-# Dynamic rules list
-_RULES: List[_Rule] = _load_clinical_rules()
-
-
-# ---------------------------------------------------------------------------
-# Lightweight rule-based analysis
-# ---------------------------------------------------------------------------
-
-def _diagnose_from_labs(labs: Dict[str, Any]) -> List[_Finding]:
-    """Apply threshold rules to OCR-extracted lab values."""
-    findings: List[_Finding] = []
-    seen: set = set()
-
-    for rule in _RULES:
-        entry = labs.get(rule.lab)
-        if entry is None:
-            continue
-        try:
-            value = float(
-                entry.get("value", entry) if isinstance(entry, dict) else entry
-            )
-        except (TypeError, ValueError):
-            logger.debug("Cannot parse lab value for %r: %r", rule.lab, entry)
-            continue
-
-        if not rule.matches(value):
-            continue
-
-        key = (rule.lab, rule.condition)
-        if key in seen:
-            continue
-        seen.add(key)
-
-        unit = entry.get("unit", "") if isinstance(entry, dict) else ""
-        evidence = rule.evidence_fmt.format(val=value, unit=unit or "?")
-        findings.append(
-            _Finding(
-                condition=rule.condition,
-                confidence=rule.confidence,
-                evidence=evidence,
-                severity=rule.severity,
-            )
-        )
-
-    return findings
-
-
-# ---------------------------------------------------------------------------
-# Text-building utility (for the RAG path)
-# ---------------------------------------------------------------------------
-
-def build_combined_text(report: Dict[str, Any]) -> str:
-    """Convert an OCREngine result dict to a free-text patient summary."""
-    parts: List[str] = []
-
-    # Demographic hint
-    sex_age = (report.get("fields") or {}).get("sex_age", "")
-    if sex_age:
-        parts.append(f"Patient: {sex_age}.")
-
-    # Lab values
-    labs = report.get("labs") or {}
-    if labs:
-        lab_strs = []
-        for key, entry in labs.items():
-            if isinstance(entry, dict):
-                val = entry.get("value", "?")
-                unit = (entry.get("unit") or "").strip()
-                lab_strs.append(f"{key}={val} {unit}".rstrip())
-            else:
-                lab_strs.append(f"{key}={entry}")
-        parts.append("Labs: " + ", ".join(lab_strs) + ".")
-
-    # Clinical narrative sections
-    sections = report.get("sections") or {}
-    for sec_name in ("Clinical", "Diagnosis", "Microscopic"):
-        text = (sections.get(sec_name) or "").strip()
-        if text:
-            parts.append(f"{sec_name}: {text[:300]}")
-
-    combined = " ".join(parts)
-    return combined[:512] if combined else (report.get("raw_text") or "")[:512]
-
-
-# ---------------------------------------------------------------------------
-# EvidenceMapper  (lightweight utility from the prototype)
-# ---------------------------------------------------------------------------
-
-class EvidenceMapper:
-    """Maps evidence/symptom codes to human-readable text."""
-
-    def __init__(self) -> None:
-        self._cache: Dict[str, str] = {}
-
-    def get_text(self, code: str) -> str:
-        """Return a capitalised, space-separated rendering of *code*."""
-        if code in self._cache:
-            return self._cache[code]
-        cleaned = str(code).replace("_", " ").replace("-", " ")
-        cleaned = re.sub(r"^[Ee]\s+", "", cleaned)
-        readable = " ".join(w.capitalize() for w in cleaned.split())
-        result = readable if readable else str(code)
-        self._cache[code] = result
-        return result
-
-
-# ---------------------------------------------------------------------------
-# Optional heavy components  (ClinicalBERT + FAISS + Gemini)
-# ---------------------------------------------------------------------------
-
-if TYPE_CHECKING:
-    import numpy as np
-
-
-def _mean_pooling(model_output: Any, attention_mask: Any, torch: Any) -> Any:
-    """Token mean pooling (prototype notebook)."""
-    token_embeddings = model_output.last_hidden_state
-    mask = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-    summed = torch.sum(token_embeddings * mask, 1)
-    denom = torch.clamp(mask.sum(1), min=1e-9)
-    return summed / denom
-
-
-class ClinicalBERTEmbedder:
-    """Encodes text to 768-dim vectors using ``emilyalsentzer/Bio_ClinicalBERT``."""
-
-    MODEL_NAME = "emilyalsentzer/Bio_ClinicalBERT"
-
-    def __init__(self, device: Optional[str] = None) -> None:
-        try:
-            import importlib
-            torch = importlib.import_module("torch")
-            transformers = importlib.import_module("transformers")
-            AutoModel = getattr(transformers, "AutoModel")
-            AutoTokenizer = getattr(transformers, "AutoTokenizer")
-        except Exception as exc:
-            raise ImportError("ClinicalBERTEmbedder requires 'torch' and 'transformers'.") from exc
-
-        self._torch = torch
-        self._F = importlib.import_module("torch.nn.functional")
-        self.tokenizer = AutoTokenizer.from_pretrained(self.MODEL_NAME)
-        self.model = AutoModel.from_pretrained(self.MODEL_NAME)
-        self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
-        self.model = self.model.to(self.device).eval()
-        logger.info("ClinicalBERT loaded on %s", self.device)
-
-    def encode_text(self, text: str) -> "np.ndarray":
-        import numpy as np
-        inputs = self.tokenizer(text, padding=True, truncation=True, max_length=512, return_tensors="pt").to(self.device)
-        with self._torch.no_grad():
-            outputs = self.model(**inputs)
-        embedding = _mean_pooling(outputs, inputs["attention_mask"], self._torch)
-        embedding = self._F.normalize(embedding, p=2, dim=1)
-        return embedding.cpu().numpy()[0].astype("float32")
-
-
-class MedicalCaseSearcher:
-    """FAISS-backed cosine-similarity search over medical case embeddings."""
-
-    def __init__(self, index_dir: Path) -> None:
-        try:
-            import importlib
-            faiss = importlib.import_module("faiss")
-            import pickle
-        except Exception as exc:
-            raise ImportError("MedicalCaseSearcher requires 'faiss-cpu'.") from exc
-
-        index_dir = Path(index_dir)
-        self._faiss = faiss
-        self.index = self._faiss.read_index(str(index_dir / "medical_cases.index"))
-        with open(index_dir / "metadata_mapping.pkl", "rb") as fh:
-            self.metadata = pickle.load(fh)
-        logger.info("FAISS index loaded: %d cases", self.index.ntotal)
-
-    def search(self, query_embedding: "np.ndarray", k: int = 5) -> List[Dict[str, Any]]:
-        import numpy as np
-        q = query_embedding.reshape(1, -1).astype("float32")
-        self._faiss.normalize_L2(q)
-        scores, indices = self.index.search(q, k)
-        results = []
-        for score, idx in zip(scores[0], indices[0]):
-            results.append({
-                "similarity": float(score),
-                "pathology": self.metadata["pathologies"][idx],
-                "symptoms": self.metadata["symptoms"][idx],
-                "patient_id": self.metadata["patient_ids"][idx],
-            })
-        return results
-
-
-class ArabicToEnglishTranslator:
-    """Medical Arabic→English via Gemini."""
-
-    def __init__(self, provider: GeminiProvider) -> None:
-        self._provider = provider
-
-    @staticmethod
-    def is_arabic(text: str) -> bool:
-        if not text or not text.strip(): return False
-        arabic_chars = sum(1 for c in text if "\u0600" <= c <= "\u06ff")
-        return arabic_chars / max(len(text), 1) > 0.3
-
-    async def translate(self, arabic_text: str) -> str:
-        prompt = (
-            "Translate the following Arabic medical symptoms to English.\n"
-            "Use proper medical terminology, not literal translation.\n"
-            "Return ONLY the English translation, nothing else.\n\n"
-            f"Arabic symptoms: {arabic_text}\n\nEnglish translation:"
-        )
-        try:
-            return await self._provider.generate_content(prompt)
-        except Exception as exc:
-            logger.warning("Arabic translation failed: %s", exc)
-            return arabic_text
-
-
-from app.schemas.ai import AIDiagnosisResponse
-
-
-class FineTunedDiagnosisClassifier:
-    """Load a fine-tuned ClinicalBERT classifier and run local inference."""
-
-    def __init__(self, model_dir: Path | str, max_length: int = 256, device: Optional[str] = None) -> None:
-        try:
-            import importlib
-
-            torch = importlib.import_module("torch")
-            transformers = importlib.import_module("transformers")
-            AutoTokenizer = getattr(transformers, "AutoTokenizer")
-            AutoModelForSequenceClassification = getattr(transformers, "AutoModelForSequenceClassification")
-        except Exception as exc:
-            raise ImportError(
-                "FineTunedDiagnosisClassifier requires 'torch' and 'transformers'."
-            ) from exc
-
-        self._torch = torch
-        self.model_dir = Path(model_dir)
-        self.max_length = max_length
-
-        if not self.model_dir.exists():
-            raise FileNotFoundError(f"Fine-tuned model directory not found: {self.model_dir}")
-
-        label_map_path = self.model_dir / "label_map.json"
-        if not label_map_path.exists():
-            raise FileNotFoundError(f"Missing label_map.json in model directory: {self.model_dir}")
-
-        with label_map_path.open("r", encoding="utf-8") as fh:
-            label_map = json.load(fh)
-
-        raw_id_to_label = label_map.get("id_to_label", {})
-        self.id_to_label = {int(k): v for k, v in raw_id_to_label.items()}
-        self.label_to_id = label_map.get("label_to_id", {})
-
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_dir)
-        self.model = AutoModelForSequenceClassification.from_pretrained(self.model_dir)
-        self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
-        self.model = self.model.to(self.device).eval()
-        logger.info("Fine-tuned ClinicalBERT classifier loaded from %s", self.model_dir)
-
-    def predict(self, text: str) -> Dict[str, Any]:
-        inputs = self.tokenizer(
-            text,
-            truncation=True,
-            padding=True,
-            max_length=self.max_length,
-            return_tensors="pt",
-        ).to(self.device)
-
-        with self._torch.no_grad():
-            outputs = self.model(**inputs)
-
-        logits = outputs.logits[0]
-        probs = self._torch.softmax(logits, dim=0)
-        pred_idx = int(self._torch.argmax(probs).item())
-
-        top_probs, top_indices = self._torch.topk(probs, k=min(3, probs.shape[0]))
-        top_predictions = [
-            {
-                "label": self.id_to_label.get(int(idx.item()), str(int(idx.item()))),
-                "confidence": float(score.item()),
-            }
-            for score, idx in zip(top_probs, top_indices)
-        ]
-
-        return {
-            "predicted_label": self.id_to_label.get(pred_idx, str(pred_idx)),
-            "confidence": float(probs[pred_idx].item()),
-            "top_predictions": top_predictions,
-        }
-
-class MedicalRAGAssistant:
-    """Full RAG pipeline: ClinicalBERT encoder → FAISS retrieval → Gemini LLM."""
-
-    MEDICAL_DISCLAIMER = (
-        "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "⚠️ IMPORTANT MEDICAL DISCLAIMER\n\n"
-        "This response is generated by AI based on pattern matching with medical "
-        "cases. It is NOT a substitute for professional medical advice.\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    )
-
-    def __init__(
-        self,
-        embedder: ClinicalBERTEmbedder,
-        searcher: MedicalCaseSearcher,
-        gemini_api_key: str,
-        model_name: str = "gemini-2.5-flash",
-        *,
-        translate_arabic: bool = True,
-    ) -> None:
-        self.embedder = embedder
-        self.searcher = searcher
-        self._translate_arabic = translate_arabic
-        self._provider = GeminiProvider(api_key=gemini_api_key, model_name=model_name)
-        self._translator = ArabicToEnglishTranslator(self._provider)
-
-    def _build_prompt(self, user_symptoms: str, retrieved_cases: List[Dict[str, Any]]) -> str:
-        context = "SIMILAR MEDICAL CASES FROM DATABASE:\n\n"
-        for i, case in enumerate(retrieved_cases, 1):
-            context += f"Case {i}: Diagnosis: {case['pathology']}, Symptoms: {case['symptoms']}\n"
-        return (
-            "You are a professional medical diagnostic assistant. Your goal is to provide a structured "
-            "preliminary assessment based on patient symptoms and similar clinical cases.\n\n"
-            f"PATIENT'S SYMPTOMS:\n{user_symptoms}\n\n"
-            f"{context}\n"
-            "Analyze the correlation between symptoms and database cases. provide follow-up questions."
-        )
-
-    async def query(self, patient_text: str, top_k: int = 5) -> Dict[str, Any]:
-        query_text = patient_text
-        if self._translate_arabic and self._translator.is_arabic(patient_text):
-            query_text = await self._translator.translate(patient_text)
-            
-        embedding = self.embedder.encode_text(query_text)
-        cases = self.searcher.search(embedding, k=top_k)
-        prompt = self._build_prompt(query_text, cases)
-        
-        system_instruction = (
-            "You are a professional medical AI. You must return a valid JSON object matching the requested schema. "
-            "Be precise, clinical, and conservative in your assessments."
-        )
-        
-        response_json = await self._provider.generate_content(
-            prompt, 
-            system_instruction=system_instruction,
-            response_model=AIDiagnosisResponse
-        )
-        
-        try:
-            structured_data = json.loads(response_json)
-            # Add disclaimer to narrative
-            assessment = structured_data.get("assessment_summary", "")
-            return {
-                "retrieved_cases": cases,
-                "response": assessment + self.MEDICAL_DISCLAIMER,
-                "structured_diagnosis": structured_data,
-                "rag_query_text": query_text,
-            }
-        except Exception as e:
-            logger.error(f"Failed to parse structured RAG response: {e}")
-            return {
-                "retrieved_cases": cases,
-                "response": response_json + self.MEDICAL_DISCLAIMER,
-                "rag_query_text": query_text,
-            }
-
-
 class DiagnosisEngine:
-    """Orchestrates lightweight and/or RAG-based diagnosis."""
+    """Orchestrates AI-first diagnosis with rule-based validation and escalation."""
 
-    DISCLAIMER = "This is a rule-based AI system. Consult a professional."
+    DISCLAIMER = "This is an AI-assisted medical decision support system. Consult a professional."
+    CLASSIFIER_PRIMARY_THRESHOLD = 0.55
+    CLASSIFIER_SUPPORT_THRESHOLD = 0.35
+    RULE_GATING_AI_CONFIDENCE_THRESHOLD = 0.8
+    CONFIDENCE_SCORES = {
+        "very high": 0.95,
+        "high": 0.85,
+        "moderate": 0.65,
+        "medium": 0.65,
+        "low": 0.45,
+        "very low": 0.25,
+    }
+    NON_DIAGNOSIS_TERMS = {
+        "fatigue",
+        "thirst",
+        "fever",
+        "cough",
+        "pain",
+        "headache",
+        "nausea",
+        "vomiting",
+        "diarrhea",
+        "dizziness",
+        "weakness",
+        "palpitations",
+        "shortness of breath",
+        "dyspnea",
+        "chest pain",
+        "abdominal pain",
+        "sore throat",
+    }
 
     def __init__(
         self,
         *,
         use_rag: bool = False,
         faiss_index_dir: Optional[Path | str] = None,
+        clinicalbert_model_dir: Optional[Path | str] = None,
         gemini_api_key: Optional[str] = None,
         rag_top_k: int = 5,
         rag_translate_arabic: bool = True,
@@ -497,17 +74,20 @@ class DiagnosisEngine:
         self._rag_assistant: Optional[MedicalRAGAssistant] = None
         self._classifier: Optional[FineTunedDiagnosisClassifier] = None
         self._classifier_translator: Optional[ArabicToEnglishTranslator] = None
+        self._response_synthesizer: Optional[DiagnosisResponseSynthesizer] = None
         self._classifier_translate_arabic = classifier_translate_arabic
         self._rag_top_k = rag_top_k
+
         if use_rag:
-            if not faiss_index_dir or not gemini_api_key:
-                raise ValueError("RAG requires faiss_index_dir and gemini_api_key")
+            if not faiss_index_dir:
+                raise ValueError("RAG requires faiss_index_dir")
             self._rag_assistant = MedicalRAGAssistant(
-                embedder=ClinicalBERTEmbedder(),
+                embedder=ClinicalBERTEmbedder(model_dir=clinicalbert_model_dir),
                 searcher=MedicalCaseSearcher(Path(faiss_index_dir)),
-                gemini_api_key=gemini_api_key,
                 translate_arabic=rag_translate_arabic,
+                gemini_api_key=gemini_api_key,
             )
+
         if use_finetuned_classifier:
             if not finetuned_model_dir:
                 raise ValueError("Fine-tuned classifier requires finetuned_model_dir")
@@ -524,31 +104,511 @@ class DiagnosisEngine:
                     "classifier_translate_arabic=True but GEMINI_API_KEY is missing; classifier will use raw input text."
                 )
 
-    async def diagnose(self, report: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyse *report* and return findings."""
-        labs = report.get("labs", {}) or {}
-        findings = _diagnose_from_labs(labs)
-        
-        result = {
-            "findings": [
-                {"condition": f.condition, "confidence": f.confidence, "evidence": f.evidence, "severity": f.severity}
-                for f in findings
+        if gemini_api_key:
+            self._response_synthesizer = DiagnosisResponseSynthesizer(gemini_api_key=gemini_api_key)
+
+    @staticmethod
+    def _build_safety(findings: list[Dict[str, Any]]) -> Dict[str, Any]:
+        severity_order = {"critical": 4, "high": 3, "moderate": 2, "low": 1, "info": 0}
+        highest_severity = "info"
+        reasons: list[str] = []
+
+        for finding in findings:
+            severity = str(finding.get("severity", "info")).lower()
+            if severity_order.get(severity, 0) > severity_order.get(highest_severity, 0):
+                highest_severity = severity
+            if severity in {"critical", "high"}:
+                reasons.append(
+                    f"{finding.get('condition', 'Unknown finding')} marked as {severity} severity."
+                )
+
+        clinician_review_required = bool(findings)
+        emergency_attention_recommended = highest_severity == "critical"
+
+        if not findings:
+            reasons.append("No abnormal findings were detected by the rule engine.")
+        elif clinician_review_required and not reasons:
+            reasons.append("Clinical review is recommended for any abnormal finding.")
+
+        return {
+            "clinician_review_required": clinician_review_required,
+            "emergency_attention_recommended": emergency_attention_recommended,
+            "highest_rule_severity": highest_severity,
+            "critical_findings_count": sum(
+                1 for finding in findings if str(finding.get("severity", "")).lower() == "critical"
+            ),
+            "reasons": reasons,
+        }
+
+    @staticmethod
+    def _normalize_confidence(confidence: Any) -> float:
+        if isinstance(confidence, (int, float)):
+            return max(0.0, min(float(confidence), 1.0))
+        normalized = str(confidence or "").strip().lower()
+        return DiagnosisEngine.CONFIDENCE_SCORES.get(normalized, 0.0)
+
+    @staticmethod
+    def _labels_overlap(left: str, right: str) -> bool:
+        left_normalized = str(left or "").strip().lower()
+        right_normalized = str(right or "").strip().lower()
+        if not left_normalized or not right_normalized:
+            return False
+        return (
+            left_normalized in right_normalized
+            or right_normalized in left_normalized
+        )
+
+    @classmethod
+    def _normalize_label(cls, value: str) -> str:
+        return " ".join(str(value or "").strip().lower().replace("-", " ").replace("_", " ").split())
+
+    @classmethod
+    def _is_symptom_like_label(cls, label: str, patient_symptoms: list[str]) -> bool:
+        normalized_label = cls._normalize_label(label)
+        if not normalized_label:
+            return True
+        normalized_symptoms = {cls._normalize_label(item) for item in patient_symptoms if str(item).strip()}
+        if normalized_label in normalized_symptoms:
+            return True
+        if normalized_label in cls.NON_DIAGNOSIS_TERMS:
+            return True
+        return any(
+            normalized_label == symptom
+            or normalized_label in symptom
+            or symptom in normalized_label
+            for symptom in normalized_symptoms
+            if symptom
+        )
+
+    @classmethod
+    def _build_rules_fallback_diagnosis(cls, rule_conditions: list[str]) -> Optional[Dict[str, Any]]:
+        if not rule_conditions:
+            return None
+        unique_conditions = list(dict.fromkeys(rule_conditions))
+        return {
+            "diagnosis": unique_conditions[0],
+            "confidence": 0.58,
+            "source": "rules_fallback",
+            "mode": "rules_fallback",
+            "reasoning": "AI diagnostic layers were inconclusive or conflicted with rule-based clinical signals, so the system fell back to deterministic medical rules.",
+            "supporting_evidence": [
+                "Rule findings: " + ", ".join(unique_conditions),
             ],
-            "summary": f"Detected {len(findings)} potential findings." if findings else "No findings.",
+            "rule_alignment": True,
+        }
+
+    @classmethod
+    def _should_prefer_rules_over_ai(
+        cls,
+        *,
+        findings: list[Dict[str, Any]],
+        selected_label: str,
+        selected_confidence: float,
+        classifier_prediction: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        if not findings:
+            return False
+
+        selected_label_normalized = cls._normalize_label(selected_label)
+        lab_rule_findings = [
+            item for item in findings
+            if str(item.get("source", "")).strip().lower() == "lab_rules"
+        ]
+        if lab_rule_findings:
+            lab_rule_labels = [
+                cls._normalize_label(str(item.get("condition", "")).strip())
+                for item in lab_rule_findings
+                if str(item.get("condition", "")).strip()
+            ]
+            lab_rule_conflicts = not any(
+                cls._labels_overlap(selected_label_normalized, rule_label)
+                for rule_label in lab_rule_labels
+                if rule_label
+            )
+            if lab_rule_conflicts:
+                return True
+
+        symptom_rule_findings = [
+            item for item in findings
+            if str(item.get("source", "")).strip().lower() == "symptom_rules"
+        ]
+        if not symptom_rule_findings:
+            return False
+
+        rule_labels = [
+            cls._normalize_label(str(item.get("condition", "")).strip())
+            for item in symptom_rule_findings
+            if str(item.get("condition", "")).strip()
+        ]
+        rule_conflicts = not any(
+            cls._labels_overlap(selected_label_normalized, rule_label)
+            for rule_label in rule_labels
+            if rule_label
+        )
+        if not rule_conflicts:
+            return False
+
+        max_rule_severity = max(
+            (
+                {"critical": 4, "high": 3, "moderate": 2, "low": 1, "info": 0}.get(
+                    str(item.get("severity", "info")).strip().lower(),
+                    0,
+                )
+                for item in symptom_rule_findings
+            ),
+            default=0,
+        )
+        classifier_confidence = (
+            cls._normalize_confidence(classifier_prediction.get("confidence"))
+            if classifier_prediction else 0.0
+        )
+
+        return (
+            max_rule_severity >= 2
+            and selected_confidence < cls.RULE_GATING_AI_CONFIDENCE_THRESHOLD
+            and classifier_confidence < cls.CLASSIFIER_PRIMARY_THRESHOLD
+        )
+
+    @classmethod
+    def _build_final_diagnosis(
+        cls,
+        *,
+        findings: list[Dict[str, Any]],
+        patient_symptoms: list[str],
+        rag_out: Optional[Dict[str, Any]] = None,
+        classifier_prediction: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        rule_conditions = [str(item.get("condition", "")) for item in findings if item.get("condition")]
+        rag_structured = (rag_out or {}).get("structured_diagnosis") or {}
+        rag_findings = rag_structured.get("findings") or []
+        rag_summary = str(rag_structured.get("assessment_summary", "")).strip()
+
+        candidates: list[Dict[str, Any]] = []
+
+        if classifier_prediction:
+            label = str(classifier_prediction.get("predicted_label", "")).strip()
+            confidence = cls._normalize_confidence(classifier_prediction.get("confidence"))
+            if label and not cls._is_symptom_like_label(label, patient_symptoms):
+                candidates.append(
+                    {
+                        "label": label,
+                        "confidence": confidence,
+                        "source": "classifier",
+                        "reasoning": f"Fine-tuned classifier prediction with confidence {confidence:.2f}.",
+                        "evidence": [
+                            f"Classifier top label: {label}",
+                        ],
+                    }
+                )
+
+        if rag_findings:
+            rag_diagnosis_findings = [
+                item for item in rag_findings
+                if not cls._is_symptom_like_label(str(item.get("condition", "")).strip(), patient_symptoms)
+            ]
+            if rag_diagnosis_findings:
+                rag_best = max(
+                    rag_diagnosis_findings,
+                    key=lambda item: cls._normalize_confidence(item.get("confidence")),
+                )
+                rag_label = str(rag_best.get("condition", "")).strip()
+                rag_confidence = cls._normalize_confidence(rag_best.get("confidence"))
+                candidates.append(
+                    {
+                        "label": rag_label,
+                        "confidence": rag_confidence,
+                        "source": "rag",
+                        "reasoning": rag_summary or "RAG structured assessment based on retrieved clinical cases.",
+                        "evidence": [
+                            str(rag_best.get("evidence", "")).strip() or "RAG finding extracted from similar cases.",
+                        ],
+                    }
+                )
+
+        if rag_out and rag_out.get("retrieved_cases"):
+            top_case = rag_out["retrieved_cases"][0]
+            rag_label = str(top_case.get("pathology", "")).strip()
+            rag_confidence = max(0.3, min(float(top_case.get("similarity", 0.0)), 0.8))
+            if rag_label and not cls._is_symptom_like_label(rag_label, patient_symptoms):
+                candidates.append(
+                    {
+                        "label": rag_label,
+                        "confidence": rag_confidence,
+                        "source": "rag_retrieval",
+                        "reasoning": "Nearest-neighbor retrieval from similar indexed medical cases.",
+                        "evidence": [
+                            f"Top retrieved case pathology: {rag_label}",
+                        ],
+                    }
+                )
+
+        classifier_label = (
+            str(classifier_prediction.get("predicted_label", "")).strip()
+            if classifier_prediction
+            else ""
+        )
+        rag_label = ""
+        for candidate in candidates:
+            if candidate["source"] in {"rag", "rag_retrieval"}:
+                rag_label = candidate["label"]
+                break
+
+        classifier_primary = (
+            classifier_prediction is not None
+            and cls._normalize_confidence(classifier_prediction.get("confidence")) >= cls.CLASSIFIER_PRIMARY_THRESHOLD
+        )
+        classifier_supportive = (
+            classifier_prediction is not None
+            and cls._normalize_confidence(classifier_prediction.get("confidence")) >= cls.CLASSIFIER_SUPPORT_THRESHOLD
+        )
+        rag_agrees_with_classifier = cls._labels_overlap(rag_label, classifier_label)
+
+        if rag_agrees_with_classifier and classifier_supportive and classifier_label:
+            best_confidence = max(
+                cls._normalize_confidence(classifier_prediction.get("confidence")),
+                next(
+                    (
+                        candidate["confidence"]
+                        for candidate in candidates
+                        if candidate["source"] in {"rag", "rag_retrieval"}
+                    ),
+                    0.0,
+                ),
+            )
+            supporting_evidence = [
+                "Classifier and RAG converged on the same diagnosis family.",
+            ]
+            if rule_conditions:
+                supporting_evidence.append(
+                    "Rule safety layer flagged: " + ", ".join(dict.fromkeys(rule_conditions))
+                )
+            if cls._should_prefer_rules_over_ai(
+                findings=findings,
+                selected_label=classifier_label,
+                selected_confidence=best_confidence,
+                classifier_prediction=classifier_prediction,
+            ):
+                return cls._build_rules_fallback_diagnosis(rule_conditions)
+            return {
+                "diagnosis": classifier_label,
+                "confidence": round(min(best_confidence + 0.08, 0.98), 2),
+                "source": "classifier_rag_consensus",
+                "mode": "ai_primary",
+                "reasoning": "Final diagnosis selected from agreement between the fine-tuned classifier and RAG evidence.",
+                "supporting_evidence": supporting_evidence,
+                "rule_alignment": any(
+                    cls._labels_overlap(classifier_label, condition)
+                    for condition in rule_conditions
+                ),
+            }
+
+        if candidates:
+            ranked_candidates = sorted(
+                candidates,
+                key=lambda item: (
+                    item["confidence"] + (0.03 if item["source"] == "rag" else 0.0),
+                    item["source"] == "rag",
+                ),
+                reverse=True,
+            )
+            selected = ranked_candidates[0]
+            if selected["source"] == "classifier" and not classifier_primary:
+                rag_candidate = next(
+                    (item for item in ranked_candidates if item["source"] in {"rag", "rag_retrieval"}),
+                    None,
+                )
+                if rag_candidate is not None:
+                    selected = rag_candidate
+
+            supporting_evidence = list(dict.fromkeys(selected["evidence"]))
+            if rule_conditions:
+                supporting_evidence.append(
+                    "Rule safety findings: " + ", ".join(dict.fromkeys(rule_conditions))
+                )
+            if cls._should_prefer_rules_over_ai(
+                findings=findings,
+                selected_label=selected["label"],
+                selected_confidence=selected["confidence"],
+                classifier_prediction=classifier_prediction,
+            ):
+                return cls._build_rules_fallback_diagnosis(rule_conditions)
+            return {
+                "diagnosis": selected["label"],
+                "confidence": round(selected["confidence"], 2),
+                "source": selected["source"],
+                "mode": "ai_primary",
+                "reasoning": selected["reasoning"],
+                "supporting_evidence": supporting_evidence,
+                "rule_alignment": any(
+                    cls._labels_overlap(selected["label"], condition)
+                    for condition in rule_conditions
+                ),
+            }
+
+        if findings:
+            return cls._build_rules_fallback_diagnosis(rule_conditions)
+
+        return None
+
+    @classmethod
+    def _build_decision_fusion(
+        cls,
+        findings: list[Dict[str, Any]],
+        *,
+        rag_out: Optional[Dict[str, Any]] = None,
+        classifier_prediction: Optional[Dict[str, Any]] = None,
+        final_diagnosis: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        finding_sources = [str(item.get("source", "lab_rules")) for item in findings]
+        lab_rule_findings_count = sum(1 for source in finding_sources if source == "lab_rules")
+        symptom_rule_findings_count = sum(1 for source in finding_sources if source == "symptom_rules")
+        rule_conditions = [str(item.get("condition", "")).lower() for item in findings]
+        classifier_label = (
+            str(classifier_prediction.get("predicted_label", "")).lower()
+            if classifier_prediction
+            else ""
+        )
+        classifier_agrees = None
+        if classifier_label:
+            classifier_agrees = any(
+                classifier_label in condition or condition in classifier_label
+                for condition in rule_conditions
+                if condition
+            )
+
+        primary_source = str((final_diagnosis or {}).get("source") or "rules")
+        supporting_sources: list[str] = []
+        if rag_out:
+            supporting_sources.append("rag")
+        if classifier_prediction:
+            supporting_sources.append("classifier")
+        if lab_rule_findings_count:
+            supporting_sources.append("lab_rules")
+        if symptom_rule_findings_count:
+            supporting_sources.append("symptom_rules")
+        if primary_source not in supporting_sources:
+            supporting_sources.insert(0, primary_source)
+
+        rule_validation_status = "not_available"
+        if findings and final_diagnosis:
+            if final_diagnosis.get("rule_alignment"):
+                rule_validation_status = "aligned"
+            else:
+                rule_validation_status = "safety_flagged"
+        elif findings:
+            rule_validation_status = "fallback_only"
+
+        return {
+            "primary_source": primary_source,
+            "supporting_sources": list(dict.fromkeys(supporting_sources)),
+            "rule_findings_count": len(findings),
+            "lab_rule_findings_count": lab_rule_findings_count,
+            "symptom_rule_findings_count": symptom_rule_findings_count,
+            "rag_used": bool(rag_out),
+            "classifier_used": bool(classifier_prediction),
+            "classifier_agrees_with_rules": classifier_agrees,
+            "rule_validation_status": rule_validation_status,
+            "final_assessment_basis": (
+                "Fine-tuned model predictions and RAG evidence drive the final diagnosis whenever available. "
+                "Clinical rules act as a deterministic safety and escalation layer."
+            ),
+        }
+
+    @classmethod
+    def _build_summary(
+        cls,
+        findings_payload: list[Dict[str, Any]],
+        *,
+        final_diagnosis: Optional[Dict[str, Any]] = None,
+        classifier_prediction: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        if final_diagnosis:
+            diagnosis = final_diagnosis.get("diagnosis", "an undetermined condition")
+            confidence = cls._normalize_confidence(final_diagnosis.get("confidence"))
+            source = str(final_diagnosis.get("source", "ai"))
+            if findings_payload:
+                return (
+                    f"AI-assisted assessment suggests {diagnosis} "
+                    f"(confidence {confidence:.2f}, source: {source}) with rule-based safety checks attached."
+                )
+            return (
+                f"AI-assisted assessment suggests {diagnosis} "
+                f"(confidence {confidence:.2f}, source: {source})."
+            )
+
+        if findings_payload:
+            unique_conditions = ", ".join(
+                dict.fromkeys(str(item.get("condition", "Unknown finding")) for item in findings_payload)
+            )
+            if any(item.get("source") == "symptom_rules" for item in findings_payload):
+                return (
+                    "No abnormal lab-rule findings were detected, but symptom-based rules suggest: "
+                    f"{unique_conditions}."
+                )
+            return f"Detected {len(findings_payload)} potential findings: {unique_conditions}."
+
+        if classifier_prediction:
+            predicted_label = classifier_prediction.get("predicted_label", "unknown")
+            confidence = float(classifier_prediction.get("confidence", 0.0))
+            if confidence >= cls.CLASSIFIER_SUPPORT_THRESHOLD:
+                return (
+                    "Rule engine found no abnormal findings, but AI classification suggests "
+                    f"{predicted_label} "
+                    f"(confidence {confidence:.2f})."
+                )
+
+        return "No clinically significant findings detected."
+
+    async def diagnose(self, report: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(report, dict):
+            raise TypeError("report must be a dictionary")
+
+        labs = report.get("labs", {}) or {}
+        symptoms = report.get("symptoms", []) or []
+        findings = diagnose_from_labs(labs)
+        symptom_findings = diagnose_from_symptoms(
+            symptoms,
+            raw_text=str(report.get("raw_text", "") or ""),
+        ) if symptoms else []
+        merged_findings = [
+            ("lab_rules", finding) for finding in findings
+        ] + [
+            ("symptom_rules", finding) for finding in symptom_findings
+        ]
+        findings_payload = [
+            {
+                "condition": finding.condition,
+                "confidence": finding.confidence,
+                "evidence": finding.evidence,
+                "severity": finding.severity,
+                "source": source,
+            }
+            for source, finding in merged_findings
+        ]
+        result = {
+            "findings": findings_payload,
             "disclaimer": self.DISCLAIMER,
         }
 
+        combined = build_combined_text(report)
+        patient_symptoms = [str(item).strip().lower() for item in symptoms if str(item).strip()]
+        rag_out: Optional[Dict[str, Any]] = None
+        classifier_prediction: Optional[Dict[str, Any]] = None
+
         if self._rag_assistant:
-            combined = build_combined_text(report)
-            rag_out = await self._rag_assistant.query(combined, top_k=self._rag_top_k)
+            rag_out = await self._rag_assistant.query(
+                combined,
+                top_k=self._rag_top_k,
+                query_symptoms=patient_symptoms,
+            )
             result["rag_response"] = rag_out["response"]
             result["retrieved_cases"] = rag_out["retrieved_cases"]
+            if "structured_diagnosis" in rag_out:
+                result["structured_rag_diagnosis"] = rag_out["structured_diagnosis"]
 
         if self._classifier:
-            combined = build_combined_text(report)
             classifier_query_text = combined
             translated_from_arabic = False
-
             if (
                 self._classifier_translate_arabic
                 and self._classifier_translator
@@ -556,16 +616,44 @@ class DiagnosisEngine:
             ):
                 classifier_query_text = await self._classifier_translator.translate(combined)
                 translated_from_arabic = classifier_query_text != combined
-
             classifier_prediction = self._classifier.predict(classifier_query_text)
             classifier_prediction["input_text"] = combined
             classifier_prediction["query_text"] = classifier_query_text
             classifier_prediction["translated_from_arabic"] = translated_from_arabic
             result["classifier_prediction"] = classifier_prediction
 
+        final_diagnosis = self._build_final_diagnosis(
+            findings=findings_payload,
+            patient_symptoms=patient_symptoms,
+            rag_out=rag_out,
+            classifier_prediction=classifier_prediction,
+        )
+        if final_diagnosis:
+            result["final_diagnosis"] = final_diagnosis
+
+        result["summary"] = self._build_summary(
+            findings_payload,
+            final_diagnosis=final_diagnosis,
+            classifier_prediction=classifier_prediction,
+        )
+
+        result["decision_fusion"] = self._build_decision_fusion(
+            findings_payload,
+            rag_out=rag_out,
+            classifier_prediction=classifier_prediction,
+            final_diagnosis=final_diagnosis,
+        )
+        result["safety"] = self._build_safety(findings_payload)
+
+        if self._response_synthesizer:
+            synthesis = await self._response_synthesizer.synthesize(report, result)
+            result["gemini_response"] = synthesis["response_text"]
+            result["gemini_response_metadata"] = synthesis["metadata"]
+            if synthesis.get("structured_response") is not None:
+                result["structured_gemini_response"] = synthesis["structured_response"]
+
         return result
 
 
-async def diagnose(report: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-    """Diagnose lab abnormalities (async wrapper)."""
+async def diagnose(report: Dict[str, Any], **kwargs: Any) -> Dict[str, Any]:
     return await DiagnosisEngine(**kwargs).diagnose(report)

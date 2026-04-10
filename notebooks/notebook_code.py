@@ -360,16 +360,20 @@ class DDXPreprocessor:
 
         return processed_df
 
-    def process_all_splits(self, dataset, sample_size=None):
-        """Process all dataset splits"""
+    def process_all_splits(self, dataset, sample_size=None, allowed_splits=None):
+        """Process selected dataset splits."""
         print("\n" + "="*60)
         print("🏥 DDXPlus Data Preprocessing Pipeline")
         print("="*60)
 
         processed_splits = {}
+        selected_splits = list(allowed_splits or dataset.keys())
 
-        for split_name in dataset.keys():
+        for split_name in selected_splits:
             try:
+                if split_name not in dataset:
+                    print(f"   ⚠️ Split '{split_name}' not found in dataset. Skipping.")
+                    continue
                 hf_dataset = dataset[split_name]
 
                 # Sample if requested
@@ -453,23 +457,30 @@ print("\n" + "="*60)
 print("🚀 STARTING PREPROCESSING")
 print("="*60)
 
-# Processing mode
+# Recommended Colab configuration:
+# - Use train + validate to build the FAISS knowledge base.
+# - Keep test out of the index so it remains clean for evaluation.
+# - 20,000 samples per split is a strong middle ground for Colab.
+INDEX_SOURCE_SPLITS = ["train", "validate"]
+USE_SAMPLE_SIZE = 20000  # Change to None for full dataset
+
 print("\n⚙️ Processing mode:")
-print("  Quick test: 1,000 samples per split")
-print("  Full dataset: All samples")
-
-USE_SAMPLE_SIZE = 1000  # Change to None for full dataset
-
+print(f"  Source splits for FAISS: {INDEX_SOURCE_SPLITS}")
+print("  Test split is excluded to avoid retrieval leakage during evaluation")
 if USE_SAMPLE_SIZE:
-    print(f"\n📊 Running with {USE_SAMPLE_SIZE:,} samples per split...")
+    print(f"  Sampling: {USE_SAMPLE_SIZE:,} samples per selected split")
 else:
-    print(f"\n📊 Running with FULL dataset...")
+    print("  Sampling: FULL selected splits")
 
 # Initialize preprocessor
 preprocessor = DDXPreprocessor()
 
 # Process dataset
-processed_splits = preprocessor.process_all_splits(dataset, sample_size=USE_SAMPLE_SIZE)
+processed_splits = preprocessor.process_all_splits(
+    dataset,
+    sample_size=USE_SAMPLE_SIZE,
+    allowed_splits=INDEX_SOURCE_SPLITS,
+)
 
 # Show statistics
 if processed_splits:
@@ -560,7 +571,11 @@ print(f"   Embeddings output: {EMBEDDINGS_DIR}")
 
 print("\n🔍 Checking for processed data...")
 
-processed_files = list(PROCESSED_DIR.glob("*_processed.csv"))
+processed_files = [
+    PROCESSED_DIR / f"{split_name}_processed.csv"
+    for split_name in INDEX_SOURCE_SPLITS
+    if (PROCESSED_DIR / f"{split_name}_processed.csv").exists()
+]
 
 if not processed_files:
     print("❌ No processed files found!")
@@ -568,7 +583,7 @@ if not processed_files:
     print("\n⚠️ Please run Step 1 (preprocessing) first!")
     raise FileNotFoundError("Processed data not found")
 
-print(f"✅ Found {len(processed_files)} processed files:")
+print(f"✅ Found {len(processed_files)} processed files for FAISS build:")
 for file in processed_files:
     file_size = file.stat().st_size / (1024*1024)
     print(f"   • {file.name} ({file_size:.1f} MB)")

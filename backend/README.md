@@ -1,6 +1,6 @@
-# GP Medical Analysis — HTTP API
+# GP Medical Analysis - HTTP API
 
-FastAPI layer over `manager.ChatManager` (OCR + rule-based diagnosis + optional RAG).
+FastAPI layer over `manager.ChatManager` for OCR, AI-first diagnosis fusion, and therapy generation.
 
 ## Run (from repository root)
 
@@ -18,7 +18,7 @@ Open `http://127.0.0.1:8000/api/docs` for Swagger UI.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/health` | Liveness |
-| GET | `/api/v1/meta` | Version and RAG configuration flags |
+| GET | `/api/v1/meta` | Version and AI configuration flags |
 | POST | `/api/v1/pipeline/labs` | JSON body: `labs`, optional `symptoms` |
 | POST | `/api/v1/pipeline/image` | Multipart form: `file` (report image) |
 | POST | `/api/v1/pipeline/symptoms` | JSON: `text`, optional `use_symptom_parser` |

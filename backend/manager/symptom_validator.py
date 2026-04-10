@@ -101,6 +101,7 @@ def validate_parsed(parsed: Dict[str, Any], low_confidence_threshold: float = LO
     return {
         "labs": validated_labs,
         "symptoms": symptom_texts,
+        "raw_text": str(parsed.get("raw_text", "") or ""),
         "confidence": confidence_map,
         "warnings": warnings,
         "review_required": review_required,
