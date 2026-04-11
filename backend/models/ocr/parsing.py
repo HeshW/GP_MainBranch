@@ -91,7 +91,7 @@ def cross_line_fallback(lines: List[str], labs: Dict[str, LabEntry], warnings: L
             labs[canonical] = {
                 "value": value,
                 "unit": raw_unit if raw_unit else None,
-                "source_match": f"{norm_line} -> {next_norm}",
+                "source_match": f"{norm_line} → {next_norm}",
             }
             missing.discard(canonical)
 

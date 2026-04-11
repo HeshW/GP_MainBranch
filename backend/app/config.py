@@ -23,6 +23,7 @@ class Settings(BaseSettings):
 
     api_title: str = "GP Medical Analysis API"
     api_version: str = "1.0.0"
+    max_upload_bytes: int = 10 * 1024 * 1024
     cors_origins: str = (
         "http://localhost:5173,http://127.0.0.1:5173,"
         "http://localhost:3000,http://127.0.0.1:3000"

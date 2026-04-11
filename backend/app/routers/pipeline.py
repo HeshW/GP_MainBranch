@@ -8,6 +8,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
+from app.config import get_settings
 from app.deps import get_chat_manager
 from app.schemas.pipeline import (
     ClarificationRequest,
@@ -19,6 +20,49 @@ from app.schemas.pipeline import (
 from manager.chat_manager import ChatManager
 
 router = APIRouter(tags=["pipeline"])
+
+_ALLOWED_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff")
+_UPLOAD_CHUNK_SIZE = 1024 * 1024
+
+
+async def _save_upload_to_temp(
+    file: UploadFile,
+    *,
+    suffix: str,
+    max_upload_bytes: int,
+) -> str:
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    total = 0
+
+    try:
+        while True:
+            chunk = await file.read(_UPLOAD_CHUNK_SIZE)
+            if not chunk:
+                break
+
+            total += len(chunk)
+            if total > max_upload_bytes:
+                limit_mb = max_upload_bytes / (1024 * 1024)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File too large. Max upload size is {limit_mb:.1f} MB.",
+                )
+
+            tmp.write(chunk)
+
+        if total == 0:
+            raise HTTPException(status_code=400, detail="Empty file")
+
+        tmp.flush()
+        tmp.close()
+        return tmp.name
+    except Exception:
+        tmp.close()
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+        raise
 
 
 @router.post("/pipeline/labs")
@@ -43,23 +87,24 @@ async def pipeline_image(
     if not file.filename:
         raise HTTPException(status_code=400, detail="Missing filename")
     suffix = os.path.splitext(file.filename)[1].lower() or ".png"
-    if suffix not in (".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff"):
+    if suffix not in _ALLOWED_IMAGE_SUFFIXES:
         raise HTTPException(
             status_code=400,
             detail="Unsupported image type. Use PNG, JPEG, or similar.",
         )
-    data = await file.read()
-    if not data:
-        raise HTTPException(status_code=400, detail="Empty file")
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+
+    max_upload_bytes = get_settings().max_upload_bytes
+    tmp_path = await _save_upload_to_temp(
+        file,
+        suffix=suffix,
+        max_upload_bytes=max_upload_bytes,
+    )
+
     try:
-        tmp.write(data)
-        tmp.flush()
-        tmp.close()
-        return await manager.run_pipeline(image=tmp.name)
+        return await manager.run_pipeline(image=tmp_path)
     finally:
         try:
-            os.unlink(tmp.name)
+            os.unlink(tmp_path)
         except OSError:
             pass
 
@@ -72,23 +117,24 @@ async def pipeline_ocr(
     if not file.filename:
         raise HTTPException(status_code=400, detail="Missing filename")
     suffix = os.path.splitext(file.filename)[1].lower() or ".png"
-    if suffix not in (".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff"):
+    if suffix not in _ALLOWED_IMAGE_SUFFIXES:
         raise HTTPException(
             status_code=400,
             detail="Unsupported image type. Use PNG, JPEG, or similar.",
         )
-    data = await file.read()
-    if not data:
-        raise HTTPException(status_code=400, detail="Empty file")
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+
+    max_upload_bytes = get_settings().max_upload_bytes
+    tmp_path = await _save_upload_to_temp(
+        file,
+        suffix=suffix,
+        max_upload_bytes=max_upload_bytes,
+    )
+
     try:
-        tmp.write(data)
-        tmp.flush()
-        tmp.close()
-        return await manager.run_ocr_only(tmp.name)
+        return await manager.run_ocr_only(tmp_path)
     finally:
         try:
-            os.unlink(tmp.name)
+            os.unlink(tmp_path)
         except OSError:
             pass
 

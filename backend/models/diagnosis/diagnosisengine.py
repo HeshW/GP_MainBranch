@@ -1065,17 +1065,18 @@ class DiagnosisEngine:
                 result["structured_rag_diagnosis"] = rag_out["structured_diagnosis"]
 
         if self._classifier:
-            classifier_query_text = combined
+            classifier_input_text = str(report.get("raw_text", "") or "").strip() or combined
+            classifier_query_text = classifier_input_text
             translated_from_arabic = False
             if (
                 self._classifier_translate_arabic
                 and self._classifier_translator
-                and self._classifier_translator.is_arabic(combined)
+                and self._classifier_translator.is_arabic(classifier_input_text)
             ):
-                classifier_query_text = await self._classifier_translator.translate(combined)
-                translated_from_arabic = classifier_query_text != combined
+                classifier_query_text = await self._classifier_translator.translate(classifier_input_text)
+                translated_from_arabic = classifier_query_text != classifier_input_text
             classifier_prediction = self._classifier.predict(classifier_query_text)
-            classifier_prediction["input_text"] = combined
+            classifier_prediction["input_text"] = classifier_input_text
             classifier_prediction["query_text"] = classifier_query_text
             classifier_prediction["translated_from_arabic"] = translated_from_arabic
             result["classifier_prediction"] = classifier_prediction

@@ -12,7 +12,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from pathlib import Path
 
 
@@ -36,21 +36,48 @@ class RequirementSpec:
 
 
 _REQ_RE = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*(==|!=|>=|<=|>|<)?\s*([^\s;#]+)?")
+_INCLUDE_RE = re.compile(r"^\s*(?:-r|--requirement)\s+(.+?)\s*$")
 
 
-def parse_requirements(path: str) -> Dict[str, RequirementSpec]:
-    specs: Dict[str, RequirementSpec] = {}
+def _strip_inline_comment(line: str) -> str:
+    """Drop trailing comments while keeping URL fragments intact."""
+    return line.split(" #", 1)[0].strip()
+
+
+def _parse_requirements_file(path: Path, specs: Dict[str, RequirementSpec], visited: Set[Path]) -> None:
+    path = path.resolve()
+    if path in visited:
+        return
+    visited.add(path)
+
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
-            stripped = line.strip()
+            stripped = _strip_inline_comment(line.strip())
             if not stripped or stripped.startswith("#"):
                 continue
+
+            include_match = _INCLUDE_RE.match(stripped)
+            if include_match:
+                include_target = include_match.group(1).strip()
+                include_path = (path.parent / include_target).resolve()
+                _parse_requirements_file(include_path, specs, visited)
+                continue
+
+            # Ignore pip options that are not package requirement specs.
+            if stripped.startswith("-"):
+                continue
+
             m = _REQ_RE.match(stripped)
             if not m:
                 continue
             name, op, version = m.groups()
             key = name.lower().replace("_", "-")
             specs[key] = RequirementSpec(name=name, raw=stripped, op=op, version=version)
+
+
+def parse_requirements(path: str) -> Dict[str, RequirementSpec]:
+    specs: Dict[str, RequirementSpec] = {}
+    _parse_requirements_file(Path(path), specs, set())
     return specs
 
 

@@ -210,3 +210,25 @@ def test_run_clarification_merges_follow_up_answers_and_re_diagnoses(monkeypatch
     assert "Follow-up clarification" in result["report"]["raw_text"]
     assert "palpitations" in result["report"]["symptoms"]
     assert result["follow_up"]["answers"]
+
+
+def test_run_ocr_reuses_single_engine_instance(monkeypatch):
+    manager = ChatManager()
+    init_count = 0
+
+    class FakeOCREngine:
+        def __init__(self):
+            nonlocal init_count
+            init_count += 1
+
+        def extract(self, image):
+            return {"raw_text": str(image), "labs": {}}
+
+    monkeypatch.setattr("models.ocr.engine.OCREngine", FakeOCREngine)
+
+    first = run_async(manager.run_ocr("first.png"))
+    second = run_async(manager.run_ocr("second.png"))
+
+    assert first["raw_text"] == "first.png"
+    assert second["raw_text"] == "second.png"
+    assert init_count == 1

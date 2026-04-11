@@ -56,13 +56,18 @@ class ChatManager:
             gemini_api_key=gemini_api_key if gemini_api_key else ""
         )
         self._chat_sessions = ChatSessionStore()
+        self._ocr_engine: Any | None = None
+
+    def _get_ocr_engine(self):
+        if self._ocr_engine is None:
+            from models.ocr.engine import OCREngine
+
+            self._ocr_engine = OCREngine()
+        return self._ocr_engine
 
     async def run_ocr(self, image: Union[str, Path, Any]) -> Dict[str, Any]:
         """Run OCR on an image."""
-        from models.ocr.engine import OCREngine
-
-        engine = OCREngine()
-        return engine.extract(image)
+        return self._get_ocr_engine().extract(image)
 
     async def prepare_report(
         self,

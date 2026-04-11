@@ -7,8 +7,8 @@ from typing import Any
 
 import numpy as np
 
+from . import image_io as _image_io
 from .fields import extract_fields_and_sections
-from .image_io import ensure_hwc3_uint8, to_rgb_array
 from .parsing import attach_confidences, extract_labs_from_text, normalise_text, parse_labs
 from .raw_ocr import collect_raw_ocr, collect_text
 from .types import ImageInput, OCRResult
@@ -22,8 +22,21 @@ except Exception:  # pragma: no cover
     _PADDLEOCR_AVAILABLE = False
 
 # Backward-compatible aliases for tests/internal imports.
-_to_rgb_array = to_rgb_array
-_ensure_hwc3_uint8 = ensure_hwc3_uint8
+# Keep these module-level names so existing tests can monkeypatch them.
+_PILImage = _image_io._PILImage
+_PIL_AVAILABLE = _image_io._PIL_AVAILABLE
+
+
+def _to_rgb_array(image: Any) -> np.ndarray:
+    _image_io._PILImage = _PILImage
+    _image_io._PIL_AVAILABLE = _PIL_AVAILABLE
+    return _image_io.to_rgb_array(image)
+
+
+def _ensure_hwc3_uint8(img: np.ndarray) -> np.ndarray:
+    return _image_io.ensure_hwc3_uint8(img)
+
+
 _normalise_text = normalise_text
 _parse_labs = parse_labs
 _collect_raw_ocr = collect_raw_ocr
@@ -53,10 +66,10 @@ class OCREngine:
         self._preprocess = preprocess_image
 
     def extract(self, image: ImageInput) -> OCRResult:
-        img_array = to_rgb_array(image)
+        img_array = _to_rgb_array(image)
         try:
             ocr_input: np.ndarray = preprocess(img_array) if self._preprocess else img_array
-            ocr_input = ensure_hwc3_uint8(ocr_input)
+            ocr_input = _ensure_hwc3_uint8(ocr_input)
             try:
                 result = self._ocr.ocr(ocr_input, cls=True)
             except TypeError as exc:

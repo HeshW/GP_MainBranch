@@ -31,18 +31,20 @@ def adapt_and_diagnose(
     classifier_max_length: int = 256,
     classifier_translate_arabic: bool = True,
 ) -> Dict[str, Any]:
-    return diagnose(
-        ocr_result,
-        use_rag=use_rag,
-        faiss_index_dir=faiss_index_dir,
-        clinicalbert_model_dir=clinicalbert_model_dir,
-        gemini_api_key=gemini_api_key,
-        rag_top_k=rag_top_k,
-        rag_translate_arabic=rag_translate_arabic,
-        use_finetuned_classifier=use_finetuned_classifier,
-        finetuned_model_dir=finetuned_model_dir,
-        classifier_max_length=classifier_max_length,
-        classifier_translate_arabic=classifier_translate_arabic,
+    return run_async(
+        diagnose(
+            ocr_result,
+            use_rag=use_rag,
+            faiss_index_dir=faiss_index_dir,
+            clinicalbert_model_dir=clinicalbert_model_dir,
+            gemini_api_key=gemini_api_key,
+            rag_top_k=rag_top_k,
+            rag_translate_arabic=rag_translate_arabic,
+            use_finetuned_classifier=use_finetuned_classifier,
+            finetuned_model_dir=finetuned_model_dir,
+            classifier_max_length=classifier_max_length,
+            classifier_translate_arabic=classifier_translate_arabic,
+        )
     )
 
 
