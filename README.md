@@ -28,6 +28,10 @@ frontend/src/shared/            Shared API client, layout, hooks, and types
 3. Start UI: `cd frontend && npm install && npm run dev`.
 4. Open `http://127.0.0.1:5173`.
 
+Notes:
+- Frontend dev server is pinned to host `127.0.0.1` and port `5173` in `frontend/vite.config.ts`.
+- If port `5173` is occupied, Vite will fail fast (strict port) instead of silently switching ports.
+
 Swagger docs: `http://127.0.0.1:8000/api/docs`.
 
 ## Quick start

@@ -9,11 +9,11 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
 from manager.chat_support import (
-    CHAT_ERROR_MESSAGE,
-    STREAM_ERROR_MESSAGE,
     SYSTEM_INSTRUCTION,
     build_chat_prompt,
     build_unavailable_payload,
+    get_chat_error_message,
+    get_stream_error_message,
 )
 from manager.pipeline_support import build_manual_input_from_validated, build_report
 from manager.session_store import ChatSessionStore
@@ -241,7 +241,7 @@ class ChatManager:
             )
         except Exception as exc:
             logger.error("Chat failed: %s", exc)
-            reply_text = CHAT_ERROR_MESSAGE
+            reply_text = get_chat_error_message(message)
 
         self._chat_sessions.append(session_id, "model", reply_text)
         return {
@@ -273,6 +273,6 @@ class ChatManager:
                 yield chunk
         except Exception as exc:
             logger.error("Stream chat failed: %s", exc)
-            yield STREAM_ERROR_MESSAGE
+            yield get_stream_error_message(message)
 
         self._chat_sessions.append(session_id, "model", "".join(full_response))

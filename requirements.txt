@@ -1,5 +1,7 @@
 # Unified install entrypoint.
-# Runtime binary packages are pinned in requirements-runtime.txt.
-# Test tools are listed in requirements-test.txt.
--r requirements-runtime.txt
--r requirements-test.txt
+# Runtime binary packages are pinned in backend/requirements-runtime.txt.
+# API server deps are pinned in backend/requirements.txt.
+# Test tools are listed in backend/requirements-test.txt.
+-r backend/requirements-runtime.txt
+-r backend/requirements.txt
+-r backend/requirements-test.txt
