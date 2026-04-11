@@ -373,21 +373,31 @@ class FineTunedDiagnosisClassifier:
         )
         self.id_to_label = {int(key): value for key, value in raw_id_to_label.items()}
         self.label_to_id = raw_label_to_id
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_dir, local_files_only=True)
-        model_load_kwargs: Dict[str, Any] = {
-            "local_files_only": True,
-        }
         try:
-            self.model = AutoModelForSequenceClassification.from_pretrained(
-                self.model_dir,
-                low_cpu_mem_usage=True,
-                **model_load_kwargs,
-            )
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_dir, local_files_only=True)
         except TypeError:
-            self.model = AutoModelForSequenceClassification.from_pretrained(
-                self.model_dir,
-                **model_load_kwargs,
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_dir)
+
+        model_load_attempts: List[Dict[str, Any]] = [
+            {"local_files_only": True, "low_cpu_mem_usage": True},
+            {"local_files_only": True},
+            {},
+        ]
+        model = None
+        for load_kwargs in model_load_attempts:
+            try:
+                model = AutoModelForSequenceClassification.from_pretrained(
+                    self.model_dir,
+                    **load_kwargs,
+                )
+                break
+            except TypeError:
+                continue
+        if model is None:
+            raise TypeError(
+                "Unable to load fine-tuned classifier with the available from_pretrained signatures."
             )
+        self.model = model
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self.model = self.model.to(self.device).eval()
         logger.info("Fine-tuned ClinicalBERT classifier loaded from %s", self.model_dir)
