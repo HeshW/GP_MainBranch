@@ -1,0 +1,16 @@
+# AI/RAG/classifier dependencies pinned to versions verified in this repo.
+#
+# Why pinned:
+# - Newer faiss-cpu releases can force NumPy 2.x, which breaks the pinned
+#   OpenCV/Paddle OCR runtime ABI.
+# - datasets may pull pandas 3.x, which requires NumPy >=1.26 and conflicts
+#   with the OCR stack.
+
+# Keep NumPy compatibility with backend/requirements-runtime.txt
+faiss-cpu==1.7.4
+pandas==1.5.3
+
+# Classifier and embedding stack
+torch==2.11.0
+transformers==5.5.3
+datasets==4.8.4

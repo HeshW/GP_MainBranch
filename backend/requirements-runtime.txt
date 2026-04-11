@@ -1,6 +1,11 @@
 # Runtime-pinned OCR stack (inference profile)
 # Keep this separate from requirements-test.txt.
 #
+# IMPORTANT:
+# Install backend/requirements-ai.txt for RAG/classifier support.
+# Do not install unpinned faiss-cpu/datasets versions on top of this file,
+# as they may upgrade NumPy and break OpenCV/Paddle ABI compatibility.
+#
 # Install note:
 # 1) Install this file first.
 # 2) Then install PaddleOCR without transitive deps to avoid PyMuPDF/pdf2docx
