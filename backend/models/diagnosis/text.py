@@ -4,6 +4,35 @@ import re
 from typing import Any, Dict, List
 
 
+def _normalize_sections(sections_raw: Any) -> Dict[str, str]:
+    normalized: Dict[str, str] = {}
+
+    if isinstance(sections_raw, dict):
+        for label, text in sections_raw.items():
+            normalized_label = str(label).strip().lower()
+            normalized_text = str(text or "").strip()
+            if normalized_label and normalized_text:
+                normalized[normalized_label] = normalized_text
+        return normalized
+
+    if isinstance(sections_raw, list):
+        for item in sections_raw:
+            if not isinstance(item, dict):
+                continue
+
+            normalized_label = str(item.get("label", "")).strip().lower()
+            normalized_text = str(item.get("text", "")).strip()
+            if not normalized_label or not normalized_text:
+                continue
+
+            if normalized_label in normalized and normalized[normalized_label]:
+                normalized[normalized_label] = f"{normalized[normalized_label]}\n{normalized_text}".strip()
+            else:
+                normalized[normalized_label] = normalized_text
+
+    return normalized
+
+
 def build_combined_text(report: Dict[str, Any]) -> str:
     parts: List[str] = []
     sex_age = (report.get("fields") or {}).get("sex_age", "")
@@ -32,9 +61,9 @@ def build_combined_text(report: Dict[str, Any]) -> str:
                 lab_parts.append(f"{key}={entry}")
         parts.append("Labs: " + ", ".join(lab_parts) + ".")
 
-    sections = report.get("sections") or {}
+    sections = _normalize_sections(report.get("sections"))
     for section_name in ("Clinical", "Diagnosis", "Microscopic"):
-        text = (sections.get(section_name) or "").strip()
+        text = sections.get(section_name.lower(), "")
         if text:
             parts.append(f"{section_name}: {text[:300]}")
 

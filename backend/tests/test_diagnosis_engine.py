@@ -356,3 +356,21 @@ def test_build_combined_text_includes_raw_text_and_symptoms():
 
     assert "Clinical text: Fatigue and increased thirst for two weeks." in combined
     assert "Symptoms: fatigue, thirst." in combined
+
+
+def test_build_combined_text_accepts_sections_list_from_ocr_output():
+    report = {
+        "raw_text": "Chest discomfort and dyspnea.",
+        "labs": {},
+        "sections": [
+            {"label": "Clinical", "text": "Dyspnea and chest pain"},
+            {"label": "Diagnosis", "text": "Consider cardiopulmonary differential"},
+            {"label": "Clinical", "text": "Progressive over two days"},
+        ],
+    }
+
+    combined = build_combined_text(report)
+
+    assert "Clinical: Dyspnea and chest pain" in combined
+    assert "Progressive over two days" in combined
+    assert "Diagnosis: Consider cardiopulmonary differential" in combined
