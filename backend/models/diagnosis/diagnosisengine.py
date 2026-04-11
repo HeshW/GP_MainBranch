@@ -125,6 +125,7 @@ class DiagnosisEngine:
         use_rag: bool = False,
         faiss_index_dir: Optional[Path | str] = None,
         clinicalbert_model_dir: Optional[Path | str] = None,
+        allow_unsafe_pickle_metadata: bool = False,
         gemini_api_key: Optional[str] = None,
         rag_top_k: int = 5,
         rag_translate_arabic: bool = True,
@@ -145,7 +146,10 @@ class DiagnosisEngine:
                 raise ValueError("RAG requires faiss_index_dir")
             self._rag_assistant = MedicalRAGAssistant(
                 embedder=ClinicalBERTEmbedder(model_dir=clinicalbert_model_dir),
-                searcher=MedicalCaseSearcher(Path(faiss_index_dir)),
+                searcher=MedicalCaseSearcher(
+                    Path(faiss_index_dir),
+                    allow_unsafe_pickle=allow_unsafe_pickle_metadata,
+                ),
                 translate_arabic=rag_translate_arabic,
                 gemini_api_key=gemini_api_key,
             )

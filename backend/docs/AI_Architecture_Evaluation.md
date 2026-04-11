@@ -179,18 +179,12 @@ This is useful in discussion because it shows the team already thought about mea
 
 ## 5. Current Weaknesses / Risks
 
-### Weakness 1: Therapy engine is currently broken at runtime
+### Weakness 1: Therapy quality depends on external provider availability
 
-`backend/models/therapy/engine.py` is missing required imports such as:
-- `Optional`
-- `Dict`
-- `Any`
-- `GeminiProvider`
-- `logging`
+The therapy component now initializes correctly and supports fallback mode when Gemini is unavailable.
+However, therapy richness still depends on external provider availability and quota.
 
-Also `logger` is used without being defined.
-
-This means the therapy component can crash during `ChatManager` initialization when no Gemini key is provided.
+So the current risk is operational quality degradation (fallback responses), not startup/runtime crashes.
 
 ### Weakness 2: The real diagnostic decision is still mostly rule-based
 
@@ -251,10 +245,10 @@ This creates operational risk:
 
 ### Must-fix before discussion
 
-1. Fix the therapy engine runtime issue.
-2. Make sure the backend can start successfully without crashing.
-3. Prepare one clear architecture diagram showing the AI flow.
-4. Be explicit that diagnosis is hybrid, not pure LLM diagnosis.
+1. Prepare one clear architecture diagram showing the AI flow.
+2. Be explicit that diagnosis is hybrid, not pure LLM diagnosis.
+3. Demonstrate degraded-mode behavior clearly (missing optional assets / missing API key).
+4. Show how fallback/provider-status metadata is surfaced for debugging and operations.
 
 ### High-value additions
 

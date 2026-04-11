@@ -24,15 +24,26 @@ class TherapyEngine:
     """Generate a structured therapy plan from diagnosis findings."""
 
     def __init__(self, gemini_api_key: str, model_name: str = "gemini-2.5-flash") -> None:
-        self.api_key_valid = bool(gemini_api_key and "AIza" in gemini_api_key)
+        self.api_key_valid = bool(str(gemini_api_key or "").strip())
         self._provider: Optional[GeminiProvider] = None
 
         if self.api_key_valid:
             self._provider = GeminiProvider(api_key=gemini_api_key, model_name=model_name)
         else:
             logger.warning(
-                "Invalid or missing GEMINI_API_KEY. TherapyEngine will operate in fallback mode."
+                "Missing GEMINI_API_KEY. TherapyEngine will operate in fallback mode."
             )
+
+    @staticmethod
+    def _provider_status_from_exception(exc: Exception) -> str:
+        message = str(exc).lower()
+        if any(token in message for token in ("401", "unauthorized", "invalid api key", "permission denied")):
+            return "provider_unauthorized"
+        if any(token in message for token in ("429", "rate limit", "quota", "resource exhausted")):
+            return "provider_rate_limited"
+        if any(token in message for token in ("timeout", "timed out")):
+            return "provider_timeout"
+        return "provider_unavailable"
 
     @staticmethod
     def _format_findings(findings: list[Dict[str, Any]]) -> str:
@@ -49,7 +60,12 @@ class TherapyEngine:
         return "\n".join(lines)
 
     @staticmethod
-    def _fallback_payload(findings: list[Dict[str, Any]], patient_info: str) -> Dict[str, Any]:
+    def _fallback_payload(
+        findings: list[Dict[str, Any]],
+        patient_info: str,
+        *,
+        provider_status: str,
+    ) -> Dict[str, Any]:
         return {
             "therapy_plan": FALLBACK_MESSAGE,
             "structured_therapy": None,
@@ -57,6 +73,7 @@ class TherapyEngine:
                 "mode": "fallback",
                 "findings_count": len(findings),
                 "patient_info": patient_info or "unknown",
+                "provider_status": provider_status,
             },
         }
 
@@ -79,7 +96,11 @@ class TherapyEngine:
             }
 
         if not self.api_key_valid or not self._provider:
-            return self._fallback_payload(findings, patient_info)
+            return self._fallback_payload(
+                findings,
+                patient_info,
+                provider_status="missing_api_key",
+            )
 
         findings_text = self._format_findings(findings)
         safety = diagnosis.get("safety", {})
@@ -138,4 +159,8 @@ class TherapyEngine:
             }
         except Exception as exc:
             logger.error("Therapy generation failed: %s", exc)
-            return self._fallback_payload(findings, patient_info)
+            return self._fallback_payload(
+                findings,
+                patient_info,
+                provider_status=self._provider_status_from_exception(exc),
+            )

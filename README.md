@@ -31,6 +31,16 @@ frontend/src/shared/            Shared API client, layout, hooks, and types
 Notes:
 - Frontend dev server is pinned to host `127.0.0.1` and port `5173` in `frontend/vite.config.ts`.
 - If port `5173` is occupied, Vite will fail fast (strict port) instead of silently switching ports.
+- Optional service-level API protection (no user accounts required):
+	- Backend `.env`: set `REQUIRE_SERVICE_API_KEY=true` and `SERVICE_API_KEY=<shared-secret>`.
+	- Frontend `.env` (inside `frontend/`): set `VITE_API_KEY=<shared-secret>`.
+	- Health/meta endpoints remain accessible without key for diagnostics.
+- Optional advanced AI modules are safe-off by default in `backend/.env.example` (`USE_RAG=false`, `USE_FINETUNED_CLASSIFIER=false`).
+	- If enabled but required assets are missing, backend startup degrades gracefully and keeps core endpoints available.
+- RAG metadata loading is hardened by default:
+	- Prefer `metadata_mapping.json` for FAISS metadata.
+	- If using `metadata_mapping.pkl`, provide `metadata_mapping.pkl.sha256` for hash verification.
+	- Use `ALLOW_UNSAFE_PICKLE_METADATA=true` only for trusted local artifacts.
 
 Swagger docs: `http://127.0.0.1:8000/api/docs`.
 
@@ -52,4 +62,16 @@ pip install -r requirements.txt
 
 ```bash
 pytest backend/tests/
+```
+
+Frontend smoke test:
+
+```bash
+cd frontend && npm run test:smoke
+```
+
+Backend API integration subset:
+
+```bash
+pytest -q backend/tests/test_api_integration.py
 ```

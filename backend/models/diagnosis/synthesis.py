@@ -14,18 +14,33 @@ class DiagnosisResponseSynthesizer:
     """Generate a final patient-facing medical response after diagnosis fusion."""
 
     def __init__(self, gemini_api_key: str, model_name: str = "gemini-2.5-flash") -> None:
-        self.api_key_valid = bool(gemini_api_key and "AIza" in gemini_api_key)
+        self.api_key_valid = bool(str(gemini_api_key or "").strip())
         self._provider: Optional[GeminiProvider] = None
 
         if self.api_key_valid:
             self._provider = GeminiProvider(api_key=gemini_api_key, model_name=model_name)
         else:
             logger.warning(
-                "Invalid or missing GEMINI_API_KEY. DiagnosisResponseSynthesizer will operate in fallback mode."
+                "Missing GEMINI_API_KEY. DiagnosisResponseSynthesizer will operate in fallback mode."
             )
 
     @staticmethod
-    def _fallback_payload(diagnosis: Dict[str, Any]) -> Dict[str, Any]:
+    def _provider_status_from_exception(exc: Exception) -> str:
+        message = str(exc).lower()
+        if any(token in message for token in ("401", "unauthorized", "invalid api key", "permission denied")):
+            return "provider_unauthorized"
+        if any(token in message for token in ("429", "rate limit", "quota", "resource exhausted")):
+            return "provider_rate_limited"
+        if any(token in message for token in ("timeout", "timed out")):
+            return "provider_timeout"
+        return "provider_unavailable"
+
+    @staticmethod
+    def _fallback_payload(
+        diagnosis: Dict[str, Any],
+        *,
+        provider_status: str,
+    ) -> Dict[str, Any]:
         final_diagnosis = diagnosis.get("final_diagnosis") or {}
         label = str(final_diagnosis.get("diagnosis", "an undetermined condition")).strip()
         confidence = final_diagnosis.get("confidence", "unknown")
@@ -41,6 +56,7 @@ class DiagnosisResponseSynthesizer:
             "metadata": {
                 "mode": "fallback",
                 "final_diagnosis": label,
+                "provider_status": provider_status,
             },
         }
 
@@ -83,7 +99,7 @@ class DiagnosisResponseSynthesizer:
 
     async def synthesize(self, report: Dict[str, Any], diagnosis: Dict[str, Any]) -> Dict[str, Any]:
         if not self.api_key_valid or not self._provider:
-            return self._fallback_payload(diagnosis)
+            return self._fallback_payload(diagnosis, provider_status="missing_api_key")
 
         prompt = self._build_prompt(report, diagnosis)
         system_instruction = (
@@ -118,4 +134,7 @@ class DiagnosisResponseSynthesizer:
             }
         except Exception as exc:
             logger.error("Diagnosis response synthesis failed: %s", exc)
-            return self._fallback_payload(diagnosis)
+            return self._fallback_payload(
+                diagnosis,
+                provider_status=self._provider_status_from_exception(exc),
+            )

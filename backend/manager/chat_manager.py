@@ -32,6 +32,7 @@ class ChatManager:
         use_rag: bool = False,
         faiss_index_dir: Optional[Path | str] = None,
         clinicalbert_model_dir: Optional[Path | str] = None,
+        allow_unsafe_pickle_metadata: bool = False,
         gemini_api_key: Optional[str] = None,
         rag_top_k: int = 5,
         rag_translate_arabic: bool = True,
@@ -44,6 +45,7 @@ class ChatManager:
             use_rag=use_rag,
             faiss_index_dir=faiss_index_dir,
             clinicalbert_model_dir=clinicalbert_model_dir,
+            allow_unsafe_pickle_metadata=allow_unsafe_pickle_metadata,
             gemini_api_key=gemini_api_key,
             rag_top_k=rag_top_k,
             rag_translate_arabic=rag_translate_arabic,
@@ -261,11 +263,14 @@ class ChatManager:
         message: str,
     ) -> AsyncGenerator[str, None]:
         """Stream a chat response chunk by chunk."""
+        history = self._chat_sessions.append(session_id, "user", message)
+
         if not self._therapy_engine.api_key_valid or not self._therapy_engine._provider:
-            yield build_unavailable_payload(session_id, message)["response"]
+            unavailable_response = build_unavailable_payload(session_id, message)["response"]
+            yield unavailable_response
+            self._chat_sessions.append(session_id, "model", unavailable_response)
             return
 
-        history = self._chat_sessions.append(session_id, "user", message)
         prompt = build_chat_prompt(history)
 
         full_response: list[str] = []
@@ -278,6 +283,8 @@ class ChatManager:
                 yield chunk
         except Exception as exc:
             logger.error("Stream chat failed: %s", exc)
-            yield get_stream_error_message(message)
+            error_chunk = get_stream_error_message(message)
+            full_response.append(error_chunk)
+            yield error_chunk
 
         self._chat_sessions.append(session_id, "model", "".join(full_response))

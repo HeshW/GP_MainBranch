@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { postChat } from "@/shared/api";
+import { postChat, postChatStream } from "@/shared/api";
 import { ChatMessage } from "@/shared/types";
 
 function createSessionId() {
@@ -12,20 +12,72 @@ export function ChatInterface() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  const appendChunkToLastModel = (chunk: string) => {
+    setMessages((current) => {
+      const next = [...current];
+      for (let index = next.length - 1; index >= 0; index -= 1) {
+        if (next[index].role === "model") {
+          next[index] = {
+            ...next[index],
+            content: `${next[index].content}${chunk}`,
+          };
+          return next;
+        }
+      }
+      return [...next, { role: "model", content: chunk }];
+    });
+  };
+
+  const setLastModelMessage = (content: string) => {
+    setMessages((current) => {
+      const next = [...current];
+      for (let index = next.length - 1; index >= 0; index -= 1) {
+        if (next[index].role === "model") {
+          next[index] = { ...next[index], content };
+          return next;
+        }
+      }
+      return [...next, { role: "model", content }];
+    });
+  };
+
   const handleSend = async () => {
     const trimmed = input.trim();
     if (!trimmed) return;
 
     setInput("");
-    setMessages((current) => [...current, { role: "user", content: trimmed }]);
+    setMessages((current) => [
+      ...current,
+      { role: "user", content: trimmed },
+      { role: "model", content: "" },
+    ]);
     setIsLoading(true);
 
+    let hasStreamedChunk = false;
+
     try {
-      const data = await postChat({ session_id: sessionId, message: trimmed });
-      setMessages((current) => [...current, { role: "model", content: data.response }]);
-    } catch (error) {
-      const content = error instanceof Error ? error.message : String(error);
-      setMessages((current) => [...current, { role: "model", content: `Error: ${content}` }]);
+      const streamedText = await postChatStream(
+        { session_id: sessionId, message: trimmed },
+        (chunk) => {
+          hasStreamedChunk = true;
+          appendChunkToLastModel(chunk);
+        },
+      );
+
+      if (!hasStreamedChunk && !streamedText) {
+        const fallback = await postChat({ session_id: sessionId, message: trimmed });
+        setLastModelMessage(fallback.response);
+      }
+    } catch {
+      if (!hasStreamedChunk) {
+        try {
+          const fallback = await postChat({ session_id: sessionId, message: trimmed });
+          setLastModelMessage(fallback.response);
+        } catch (error) {
+          const content = error instanceof Error ? error.message : String(error);
+          setLastModelMessage(`Error: ${content}`);
+        }
+      }
     } finally {
       setIsLoading(false);
     }

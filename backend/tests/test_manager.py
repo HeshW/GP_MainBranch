@@ -1,7 +1,12 @@
 import pytest
 
+from manager.chat_support import get_stream_error_message, get_unavailable_message
 from manager.chat_manager import ChatManager
 from manager.runtime import run_async
+
+
+async def _collect_stream_chunks(stream):
+    return [chunk async for chunk in stream]
 
 
 def test_run_pipeline_from_labs():
@@ -232,3 +237,38 @@ def test_run_ocr_reuses_single_engine_instance(monkeypatch):
     assert first["raw_text"] == "first.png"
     assert second["raw_text"] == "second.png"
     assert init_count == 1
+
+
+def test_stream_chat_unavailable_response_is_persisted_in_session_history():
+    manager = ChatManager(gemini_api_key="")
+
+    chunks = run_async(_collect_stream_chunks(manager.stream_chat("s-unavailable", "hello")))
+    expected = get_unavailable_message("hello")
+    history = manager._chat_sessions.get("s-unavailable")
+
+    assert chunks == [expected]
+    assert history[-2] == {"role": "user", "content": "hello"}
+    assert history[-1] == {"role": "model", "content": expected}
+
+
+def test_stream_chat_error_chunk_is_persisted_in_session_history(monkeypatch):
+    manager = ChatManager(gemini_api_key="local-key")
+
+    class StubProvider:
+        async def generate_stream(self, prompt, system_instruction=None):
+            yield "partial "
+            raise RuntimeError("stream failed")
+
+    class StubTherapyEngine:
+        api_key_valid = True
+        _provider = StubProvider()
+
+    monkeypatch.setattr(manager, "_therapy_engine", StubTherapyEngine())
+
+    chunks = run_async(_collect_stream_chunks(manager.stream_chat("s-error", "hello")))
+    expected_error = get_stream_error_message("hello")
+    history = manager._chat_sessions.get("s-error")
+
+    assert chunks == ["partial ", expected_error]
+    assert history[-2] == {"role": "user", "content": "hello"}
+    assert history[-1] == {"role": "model", "content": f"partial {expected_error}"}

@@ -9,7 +9,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.config import get_settings
-from app.deps import get_chat_manager
+from app.deps import get_chat_manager, require_service_api_key
 from app.schemas.pipeline import (
     ClarificationRequest,
     DiagnosisFromSymptomsRequest,
@@ -19,7 +19,10 @@ from app.schemas.pipeline import (
 )
 from manager.chat_manager import ChatManager
 
-router = APIRouter(tags=["pipeline"])
+router = APIRouter(
+    tags=["pipeline"],
+    dependencies=[Depends(require_service_api_key)],
+)
 
 _ALLOWED_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff")
 _UPLOAD_CHUNK_SIZE = 1024 * 1024

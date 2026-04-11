@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import pickle
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
@@ -110,20 +112,64 @@ class MedicalCaseSearcher:
         "diarrhea",
     }
 
-    def __init__(self, index_dir: Path) -> None:
+    def __init__(self, index_dir: Path, *, allow_unsafe_pickle: bool = False) -> None:
         try:
             import importlib
             faiss = importlib.import_module("faiss")
-            import pickle
         except Exception as exc:
             raise ImportError("MedicalCaseSearcher requires 'faiss-cpu'.") from exc
 
         index_dir = Path(index_dir)
         self._faiss = faiss
         self.index = self._faiss.read_index(str(index_dir / "medical_cases.index"))
-        with open(index_dir / "metadata_mapping.pkl", "rb") as handle:
-            self.metadata = pickle.load(handle)
+        self.metadata = self._load_metadata(index_dir, allow_unsafe_pickle=allow_unsafe_pickle)
         logger.info("FAISS index loaded: %d cases", self.index.ntotal)
+
+    @staticmethod
+    def _sha256_file(path: Path) -> str:
+        hasher = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+
+    @classmethod
+    def _load_metadata(cls, index_dir: Path, *, allow_unsafe_pickle: bool) -> Dict[str, Any]:
+        json_path = index_dir / "metadata_mapping.json"
+        if json_path.is_file():
+            with json_path.open("r", encoding="utf-8") as handle:
+                metadata = json.load(handle)
+            if not isinstance(metadata, dict):
+                raise ValueError("metadata_mapping.json must contain a JSON object.")
+            return metadata
+
+        pickle_path = index_dir / "metadata_mapping.pkl"
+        if not pickle_path.is_file():
+            raise FileNotFoundError(
+                "Missing RAG metadata mapping file. Expected metadata_mapping.json or metadata_mapping.pkl."
+            )
+
+        hash_path = index_dir / "metadata_mapping.pkl.sha256"
+        if not allow_unsafe_pickle:
+            if not hash_path.is_file():
+                raise ValueError(
+                    "Refusing to load metadata_mapping.pkl without hash verification. "
+                    "Provide metadata_mapping.pkl.sha256 or set ALLOW_UNSAFE_PICKLE_METADATA=true "
+                    "for trusted local artifacts."
+                )
+            expected_hash = hash_path.read_text(encoding="utf-8").strip().split()[0].lower()
+            actual_hash = cls._sha256_file(pickle_path)
+            if expected_hash != actual_hash:
+                raise ValueError(
+                    "metadata_mapping.pkl hash verification failed. "
+                    f"expected={expected_hash} actual={actual_hash}"
+                )
+
+        with pickle_path.open("rb") as handle:
+            metadata = pickle.load(handle)
+        if not isinstance(metadata, dict):
+            raise ValueError("metadata_mapping.pkl must deserialize to a dictionary.")
+        return metadata
 
     @staticmethod
     def _looks_like_encoded_symptoms(text: str) -> bool:

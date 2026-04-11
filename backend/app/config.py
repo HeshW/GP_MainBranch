@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     api_title: str = "GP Medical Analysis API"
     api_version: str = "1.0.0"
     max_upload_bytes: int = 10 * 1024 * 1024
+    require_service_api_key: bool = False
+    service_api_key: Optional[str] = None
     cors_origins: str = (
         "http://localhost:5173,http://127.0.0.1:5173,"
         "http://localhost:3000,http://127.0.0.1:3000"
@@ -33,6 +35,7 @@ class Settings(BaseSettings):
     use_rag: bool = False
     faiss_index_dir: Optional[str] = None
     clinicalbert_model_dir: Optional[str] = None
+    allow_unsafe_pickle_metadata: bool = False
     gemini_api_key: Optional[str] = None
     rag_top_k: int = 5
     rag_translate_arabic: bool = True
