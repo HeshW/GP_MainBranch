@@ -1,12 +1,19 @@
+import { useState } from "react";
 import { ChatInterface } from "@/features/chat";
 import { AnalysisResponse } from "@/shared/types";
 
 interface ResultViewProps {
   error: string | null;
   result: AnalysisResponse | null;
+  onClarify: (
+    report: Record<string, unknown>,
+    diagnosis: Record<string, unknown> | undefined,
+    answers: string[],
+  ) => Promise<void>;
 }
 
-export function ResultView({ error, result }: ResultViewProps) {
+export function ResultView({ error, result, onClarify }: ResultViewProps) {
+  const [clarificationDraft, setClarificationDraft] = useState("");
   if (!error && result === null) {
     return null;
   }
@@ -15,9 +22,20 @@ export function ResultView({ error, result }: ResultViewProps) {
   const decisionFusion = result?.diagnosis?.decision_fusion;
   const classifierPrediction = result?.diagnosis?.classifier_prediction;
   const retrievedCases = result?.diagnosis?.retrieved_cases ?? [];
+  const clarification = result?.diagnosis?.clarification;
+  const diagnosticCandidates = result?.diagnosis?.diagnostic_candidates ?? [];
   const geminiResponse = result?.diagnosis?.gemini_response;
   const geminiMeta = result?.diagnosis?.gemini_response_metadata;
   const therapy = result?.therapy;
+  const clarificationQuestions = clarification?.questions ?? [];
+  const clarificationReady = Boolean(
+    result?.report &&
+      clarification?.needed &&
+      clarificationDraft
+        .split("\n")
+        .map((item) => item.trim())
+        .filter(Boolean).length > 0,
+  );
 
   return (
     <section className="panel">
@@ -85,6 +103,73 @@ export function ResultView({ error, result }: ResultViewProps) {
                   Classifier top label: {classifierPrediction.predicted_label ?? "n/a"} (
                   {classifierPrediction.confidence ?? "n/a"})
                 </p>
+              )}
+            </section>
+          )}
+
+          {(clarification?.needed || diagnosticCandidates.length > 0) && (
+            <section className="result-card">
+              <h3>Clarification Mode</h3>
+              {!!diagnosticCandidates.length && (
+                <p>
+                  Leading candidates:{" "}
+                  {diagnosticCandidates
+                    .slice(0, 3)
+                    .map((item) => `${item.label} (${item.confidence ?? "n/a"})`)
+                    .join(", ")}
+                </p>
+              )}
+              {!!clarification?.reasons?.length && (
+                <ul className="flat-list">
+                  {clarification.reasons.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              )}
+              {!!clarification?.questions?.length && (
+                <div className="retrieval-list">
+                  {clarification.questions.map((item) => (
+                    <article key={item.question} className="retrieval-item">
+                      <strong>{item.question}</strong>
+                      {!!item.target_conditions?.length && (
+                        <p className="result-card__meta">
+                          Targets: {item.target_conditions.join(", ")}
+                        </p>
+                      )}
+                      {item.reason && <p>{item.reason}</p>}
+                    </article>
+                  ))}
+                </div>
+              )}
+              {clarification?.needed && result?.report && (
+                <div className="retrieval-item">
+                  <label htmlFor="clarification-answers">
+                    Your follow-up answers
+                  </label>
+                  <textarea
+                    id="clarification-answers"
+                    rows={Math.max(4, clarificationQuestions.length + 1)}
+                    value={clarificationDraft}
+                    onChange={(event) => setClarificationDraft(event.target.value)}
+                    placeholder="Write one answer per line, matching the follow-up questions above."
+                  />
+                  <button
+                    type="button"
+                    disabled={!clarificationReady}
+                    onClick={() =>
+                      onClarify(
+                        result.report ?? {},
+                        (result.diagnosis as Record<string, unknown> | undefined),
+                        clarificationDraft
+                          .split("\n")
+                          .map((item) => item.trim())
+                          .filter(Boolean),
+                      )
+                    }
+                  >
+                    Re-run with Clarification
+                  </button>
+                </div>
               )}
             </section>
           )}

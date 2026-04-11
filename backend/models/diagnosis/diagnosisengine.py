@@ -29,6 +29,10 @@ class DiagnosisEngine:
     CLASSIFIER_PRIMARY_THRESHOLD = 0.55
     CLASSIFIER_SUPPORT_THRESHOLD = 0.35
     RULE_GATING_AI_CONFIDENCE_THRESHOLD = 0.8
+    CLARIFICATION_CONFIDENCE_THRESHOLD = 0.72
+    CLARIFICATION_MARGIN_THRESHOLD = 0.12
+    CLASSIFIER_OVERRIDE_MARGIN = 0.08
+    MAX_CLARIFICATION_QUESTIONS = 3
     CONFIDENCE_SCORES = {
         "very high": 0.95,
         "high": 0.85,
@@ -56,6 +60,64 @@ class DiagnosisEngine:
         "abdominal pain",
         "sore throat",
     }
+    FOLLOW_UP_QUESTION_BANK = (
+        {
+            "keywords": ("gerd", "reflux", "gastroesophageal"),
+            "question": "Do your symptoms get worse after meals or when lying down, with a sour or acidic taste in the mouth?",
+            "question_ar": "هل تزيد الأعراض بعد الأكل أو عند الاستلقاء مع طعم حامضي أو حرقان بالفم؟",
+            "signals": ("after meals", "lying down", "sour taste", "acid", "heartburn"),
+            "type": "yes_no",
+        },
+        {
+            "keywords": ("larygospasm",),
+            "question": "Do you get sudden episodes of difficulty breathing or a high-pitched sound when breathing in?",
+            "question_ar": "هل تحدث نوبات مفاجئة من صعوبة التنفس أو صوت صفير/حدة عند الشهيق؟",
+            "signals": ("high-pitched", "breathing in", "stridor", "sudden episode"),
+            "type": "yes_no",
+        },
+        {
+            "keywords": ("urti", "viral pharyngitis", "allergic sinusitis", "influenza", "bronchitis", "pneumonia"),
+            "question": "Do you also have fever, cough, sore throat, or nasal congestion?",
+            "question_ar": "هل لديك أيضاً حمى أو كحة أو ألم بالحلق أو احتقان بالأنف؟",
+            "signals": ("fever", "cough", "sore throat", "nasal congestion", "runny nose"),
+            "type": "multi_select",
+        },
+        {
+            "keywords": ("pericarditis", "unstable angina", "stable angina", "pulmonary embolism", "atrial fibrillation", "myocarditis"),
+            "question": "Is the chest discomfort related to exertion, deep breathing, or an irregular heartbeat/palpitations?",
+            "question_ar": "هل ألم الصدر مرتبط بالمجهود أو التنفس العميق أو خفقان/عدم انتظام ضربات القلب؟",
+            "signals": ("exertion", "deep breathing", "irregular heartbeat", "palpitations", "pleuritic"),
+            "type": "multi_select",
+        },
+        {
+            "keywords": ("pulmonary embolism",),
+            "question": "Did the shortness of breath start suddenly, or was there recent immobility, leg swelling, or chest pain that worsens with breathing?",
+            "question_ar": "هل بدأ ضيق التنفس فجأة؟ وهل كان هناك قلة حركة مؤخراً أو تورم بالساق أو ألم صدر يزيد مع التنفس؟",
+            "signals": ("suddenly", "immobility", "leg swelling", "worsens with breathing"),
+            "type": "multi_select",
+        },
+        {
+            "keywords": ("diabetes", "hyperglycemia", "prediabetes"),
+            "question": "Have you noticed increased thirst, frequent urination, weight loss, or blurred vision?",
+            "question_ar": "هل لاحظت زيادة في العطش أو كثرة التبول أو فقدان وزن أو زغللة في النظر؟",
+            "signals": ("thirst", "frequent urination", "weight loss", "blurred vision"),
+            "type": "multi_select",
+        },
+        {
+            "keywords": ("myasthenia gravis", "guillain-barr", "acute dystonic"),
+            "question": "Do you have drooping eyelids, double vision, difficulty speaking or swallowing, or worsening weakness over the day?",
+            "question_ar": "هل لديك تدلي بالجفن أو ازدواج بالرؤية أو صعوبة بالكلام أو البلع أو ضعف يزداد خلال اليوم؟",
+            "signals": ("drooping eyelids", "double vision", "difficulty speaking", "difficulty swallowing", "worsening weakness"),
+            "type": "multi_select",
+        },
+        {
+            "keywords": ("anemia",),
+            "question": "Are you also having dizziness, shortness of breath on exertion, paleness, or unusual fatigue?",
+            "question_ar": "هل لديك أيضاً دوخة أو ضيق تنفس مع المجهود أو شحوب أو تعب غير معتاد؟",
+            "signals": ("dizziness", "shortness of breath", "pale", "fatigue"),
+            "type": "multi_select",
+        },
+    )
 
     def __init__(
         self,
@@ -159,8 +221,416 @@ class DiagnosisEngine:
         )
 
     @classmethod
+    def _merge_candidate(
+        cls,
+        merged: Dict[str, Dict[str, Any]],
+        *,
+        label: str,
+        confidence: float,
+        source: str,
+        reasoning: str,
+        evidence: list[str],
+    ) -> None:
+        normalized_label = cls._normalize_label(label)
+        if not normalized_label:
+            return
+        existing = merged.get(normalized_label)
+        payload = {
+            "label": label,
+            "confidence": confidence,
+            "sources": [source],
+            "reasoning": reasoning,
+            "evidence": list(dict.fromkeys(evidence)),
+        }
+        if existing is None:
+            merged[normalized_label] = payload
+            return
+        if confidence > existing["confidence"]:
+            existing["label"] = label
+            existing["confidence"] = confidence
+            existing["reasoning"] = reasoning
+        existing["sources"] = list(dict.fromkeys(existing["sources"] + [source]))
+        existing["evidence"] = list(dict.fromkeys(existing["evidence"] + evidence))
+
+    @classmethod
+    def _collect_diagnostic_candidates(
+        cls,
+        *,
+        findings: list[Dict[str, Any]],
+        patient_symptoms: list[str],
+        rag_out: Optional[Dict[str, Any]] = None,
+        classifier_prediction: Optional[Dict[str, Any]] = None,
+    ) -> list[Dict[str, Any]]:
+        merged: Dict[str, Dict[str, Any]] = {}
+        rule_conditions = [str(item.get("condition", "")).strip() for item in findings if item.get("condition")]
+        rag_structured = (rag_out or {}).get("structured_diagnosis") or {}
+        rag_findings = rag_structured.get("findings") or []
+        rag_summary = str(rag_structured.get("assessment_summary", "")).strip()
+
+        if classifier_prediction:
+            for item in classifier_prediction.get("top_predictions", []) or []:
+                label = str(item.get("label", "")).strip()
+                confidence = cls._normalize_confidence(item.get("confidence"))
+                if label and not cls._is_symptom_like_label(label, patient_symptoms):
+                    cls._merge_candidate(
+                        merged,
+                        label=label,
+                        confidence=confidence,
+                        source="classifier",
+                        reasoning=f"Fine-tuned classifier prediction with confidence {confidence:.2f}.",
+                        evidence=[f"Classifier candidate: {label}"],
+                    )
+
+        for item in rag_findings:
+            label = str(item.get("condition", "")).strip()
+            confidence = cls._normalize_confidence(item.get("confidence"))
+            evidence = str(item.get("evidence", "")).strip() or "RAG finding extracted from similar cases."
+            if label and not cls._is_symptom_like_label(label, patient_symptoms):
+                cls._merge_candidate(
+                    merged,
+                    label=label,
+                    confidence=confidence,
+                    source="rag",
+                    reasoning=rag_summary or "RAG structured assessment based on retrieved clinical cases.",
+                    evidence=[evidence],
+                )
+
+        seen_rag_labels: set[str] = set()
+        for case in (rag_out or {}).get("retrieved_cases", []) or []:
+            label = str(case.get("pathology", "")).strip()
+            if not label or cls._is_symptom_like_label(label, patient_symptoms):
+                continue
+            normalized_label = cls._normalize_label(label)
+            if normalized_label in seen_rag_labels:
+                continue
+            seen_rag_labels.add(normalized_label)
+            similarity = max(0.3, min(float(case.get("similarity", 0.0)), 0.8))
+            cls._merge_candidate(
+                merged,
+                label=label,
+                confidence=similarity,
+                source="rag_retrieval",
+                reasoning="Nearest-neighbor retrieval from similar indexed medical cases.",
+                evidence=[f"Top retrieved case pathology: {label}"],
+            )
+
+        for finding in findings:
+            label = str(finding.get("condition", "")).strip()
+            if not label:
+                continue
+            cls._merge_candidate(
+                merged,
+                label=label,
+                confidence=cls._normalize_confidence(finding.get("confidence")),
+                source=str(finding.get("source", "rules")),
+                reasoning="Deterministic rule-based clinical signal.",
+                evidence=[str(finding.get("evidence", "")).strip() or f"Rule finding: {label}"],
+            )
+
+        candidates = sorted(
+            merged.values(),
+            key=lambda item: (
+                item["confidence"] + (0.03 if "classifier" in item["sources"] else 0.0),
+                "classifier" in item["sources"],
+                "rag" in item["sources"] or "rag_retrieval" in item["sources"],
+            ),
+            reverse=True,
+        )
+
+        for candidate in candidates:
+            if rule_conditions:
+                candidate["rule_alignment"] = any(
+                    cls._labels_overlap(candidate["label"], condition)
+                    for condition in rule_conditions
+                )
+            else:
+                candidate["rule_alignment"] = False
+        return candidates
+
+    @classmethod
+    def _clarification_reasons(
+        cls,
+        *,
+        findings: list[Dict[str, Any]],
+        patient_symptoms: list[str],
+        candidates: list[Dict[str, Any]],
+        final_diagnosis: Optional[Dict[str, Any]],
+    ) -> list[str]:
+        reasons: list[str] = []
+        if not candidates and not findings:
+            return reasons
+
+        lab_rule_findings = [
+            item for item in findings
+            if str(item.get("source", "")).strip().lower() == "lab_rules"
+        ]
+        ai_candidates = [
+            item for item in candidates
+            if any(source in {"classifier", "rag", "rag_retrieval"} for source in item.get("sources", []))
+        ]
+        if (
+            final_diagnosis
+            and str(final_diagnosis.get("source", "")).strip().lower() == "rules_fallback"
+            and lab_rule_findings
+        ):
+            return reasons
+        if (
+            final_diagnosis
+            and str(final_diagnosis.get("source", "")).strip().lower() == "rules_fallback"
+            and not ai_candidates
+            and len(candidates) <= 1
+        ):
+            return reasons
+        if not final_diagnosis:
+            reasons.append("No reliable final diagnosis could be selected from the available evidence.")
+        else:
+            final_confidence = cls._normalize_confidence(final_diagnosis.get("confidence"))
+            if final_confidence < cls.CLARIFICATION_CONFIDENCE_THRESHOLD:
+                reasons.append("Current diagnosis confidence is below the clarification threshold.")
+            if findings and not final_diagnosis.get("rule_alignment"):
+                reasons.append("Rule-based safety signals do not clearly align with the current AI diagnosis.")
+
+        if len(candidates) >= 2:
+            top_conf = candidates[0]["confidence"]
+            second_conf = candidates[1]["confidence"]
+            if (
+                cls._normalize_label(candidates[0]["label"]) != cls._normalize_label(candidates[1]["label"])
+                and abs(top_conf - second_conf) <= cls.CLARIFICATION_MARGIN_THRESHOLD
+            ):
+                reasons.append("Top candidate diseases are close in score and need discrimination.")
+
+        if len(patient_symptoms) < 2 and not findings:
+            reasons.append("The first-turn symptom summary is sparse, so more discriminative details are needed.")
+        return reasons
+
+    @classmethod
+    def _build_clarification(
+        cls,
+        *,
+        report: Dict[str, Any],
+        findings: list[Dict[str, Any]],
+        patient_symptoms: list[str],
+        candidates: list[Dict[str, Any]],
+        final_diagnosis: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        reasons = cls._clarification_reasons(
+            findings=findings,
+            patient_symptoms=patient_symptoms,
+            candidates=candidates,
+            final_diagnosis=final_diagnosis,
+        )
+        if not reasons:
+            return None
+
+        reported_terms = cls._normalize_label(
+            " ".join(
+                [
+                    str(report.get("raw_text", "") or ""),
+                    " ".join(patient_symptoms),
+                ]
+            )
+        )
+        arabic_mode = cls._is_arabic_text(str(report.get("raw_text", "") or ""))
+        questions: list[Dict[str, Any]] = []
+        used_questions: set[str] = set()
+        candidate_labels = [candidate["label"] for candidate in candidates[:3]]
+
+        for candidate in candidates[:3]:
+            normalized_label = cls._normalize_label(candidate["label"])
+            for template in cls.FOLLOW_UP_QUESTION_BANK:
+                if not any(keyword in normalized_label for keyword in template["keywords"]):
+                    continue
+                if template["question"] in used_questions:
+                    continue
+                if all(signal in reported_terms for signal in template["signals"]):
+                    continue
+                questions.append(
+                    {
+                        "question": template["question_ar"] if arabic_mode and template.get("question_ar") else template["question"],
+                        "type": template["type"],
+                        "target_conditions": [candidate["label"]],
+                        "reason": f"Helps distinguish whether the presentation fits {candidate['label']}.",
+                    }
+                )
+                used_questions.add(template["question"])
+                if len(questions) >= cls.MAX_CLARIFICATION_QUESTIONS:
+                    break
+            if len(questions) >= cls.MAX_CLARIFICATION_QUESTIONS:
+                break
+
+        if len(questions) < cls.MAX_CLARIFICATION_QUESTIONS:
+            generic_candidates = ", ".join(candidate_labels[:2]) if candidate_labels else "the current differential diagnosis"
+            generic_questions = [
+                "هل بدأت الأعراض فجأة أم تدريجياً؟ وهل تزداد سوءاً؟" if arabic_mode else "Did the symptoms start suddenly or gradually, and are they getting worse?",
+                "ما العرض الأكثر وضوحاً الآن: الألم أم صعوبة التنفس أم الحمى أم الضعف؟" if arabic_mode else "Which symptom is most prominent right now: pain, breathing trouble, fever, or weakness?",
+                "هل لاحظت أي علامة خطورة مثل الإغماء أو ضيق تنفس شديد أو ألم يزداد بسرعة؟" if arabic_mode else "Have you noticed any red-flag symptom such as fainting, severe shortness of breath, or rapidly worsening pain?",
+            ]
+            for question in generic_questions:
+                if question in used_questions:
+                    continue
+                questions.append(
+                    {
+                        "question": question,
+                        "type": "free_text",
+                        "target_conditions": candidate_labels[:3],
+                        "reason": f"Provides extra detail to separate {generic_candidates}.",
+                    }
+                )
+                used_questions.add(question)
+                if len(questions) >= cls.MAX_CLARIFICATION_QUESTIONS:
+                    break
+
+        return {
+            "needed": True,
+            "mode": "follow_up_questions",
+            "reasons": reasons,
+            "questions": questions[: cls.MAX_CLARIFICATION_QUESTIONS],
+            "candidate_diseases": [
+                {
+                    "label": candidate["label"],
+                    "confidence": round(candidate["confidence"], 2),
+                    "sources": candidate["sources"],
+                }
+                for candidate in candidates[:3]
+            ],
+        }
+
+    @classmethod
+    def _signal_match_score(cls, label: str, answer_text: str) -> float:
+        normalized_label = cls._normalize_label(label)
+        lowered_answer = answer_text.lower()
+        score = 0.0
+        if normalized_label and normalized_label in cls._normalize_label(answer_text):
+            score += 0.35
+        for template in cls.FOLLOW_UP_QUESTION_BANK:
+            if not any(keyword in normalized_label for keyword in template["keywords"]):
+                continue
+            matched_signals = [signal for signal in template["signals"] if signal in lowered_answer]
+            score += min(0.3, 0.1 * len(matched_signals))
+        return score
+
+    @classmethod
+    def apply_follow_up_scoring(
+        cls,
+        diagnosis: Dict[str, Any],
+        *,
+        answers: list[str],
+        prior_diagnosis: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        if not isinstance(diagnosis, dict):
+            return diagnosis
+
+        rescored = dict(diagnosis)
+        normalized_answers = [str(item).strip() for item in answers if str(item).strip()]
+        if not normalized_answers:
+            return rescored
+
+        candidate_map: Dict[str, Dict[str, Any]] = {}
+        for item in diagnosis.get("diagnostic_candidates", []) or []:
+            label = str(item.get("label", "")).strip()
+            if not label:
+                continue
+            candidate_map[cls._normalize_label(label)] = {
+                "label": label,
+                "confidence": cls._normalize_confidence(item.get("confidence")),
+                "sources": list(item.get("sources", []) or []),
+            }
+
+        prior = prior_diagnosis or {}
+        prior_clarification = prior.get("clarification", {}) or {}
+        for item in prior_clarification.get("candidate_diseases", []) or []:
+            label = str(item.get("label", "")).strip()
+            if not label:
+                continue
+            normalized_label = cls._normalize_label(label)
+            existing = candidate_map.get(normalized_label)
+            confidence = cls._normalize_confidence(item.get("confidence"))
+            if existing is None or confidence > existing["confidence"]:
+                candidate_map[normalized_label] = {
+                    "label": label,
+                    "confidence": confidence,
+                    "sources": list(item.get("sources", []) or []),
+                }
+
+        if not candidate_map:
+            final_label = str((diagnosis.get("final_diagnosis", {}) or {}).get("diagnosis", "")).strip()
+            if final_label:
+                candidate_map[cls._normalize_label(final_label)] = {
+                    "label": final_label,
+                    "confidence": cls._normalize_confidence((diagnosis.get("final_diagnosis", {}) or {}).get("confidence")),
+                    "sources": [str((diagnosis.get("final_diagnosis", {}) or {}).get("source", "unknown"))],
+                }
+
+        question_targets: Dict[str, float] = {}
+        for idx, question in enumerate(prior_clarification.get("questions", []) or []):
+            answer = normalized_answers[idx] if idx < len(normalized_answers) else ""
+            if not answer:
+                continue
+            for label in question.get("target_conditions", []) or []:
+                normalized_label = cls._normalize_label(label)
+                question_targets[normalized_label] = question_targets.get(normalized_label, 0.0) + 0.08
+
+        rescored_candidates = []
+        answers_blob = " ".join(normalized_answers)
+        for normalized_label, candidate in candidate_map.items():
+            adjusted = float(candidate["confidence"])
+            adjusted += question_targets.get(normalized_label, 0.0)
+            adjusted += cls._signal_match_score(candidate["label"], answers_blob)
+            rescored_candidates.append(
+                {
+                    "label": candidate["label"],
+                    "confidence": round(min(adjusted, 0.99), 2),
+                    "sources": candidate["sources"],
+                }
+            )
+
+        rescored_candidates.sort(key=lambda item: item["confidence"], reverse=True)
+        rescored["diagnostic_candidates"] = rescored_candidates
+
+        if rescored_candidates:
+            best = rescored_candidates[0]
+            final = dict(rescored.get("final_diagnosis", {}) or {})
+            previous_label = str(final.get("diagnosis", "")).strip()
+            previous_confidence = cls._normalize_confidence(final.get("confidence"))
+            should_override = (
+                not previous_label
+                or cls._normalize_label(previous_label) != cls._normalize_label(best["label"])
+                or best["confidence"] > previous_confidence
+            )
+            if should_override:
+                final.update(
+                    {
+                        "diagnosis": best["label"],
+                        "confidence": best["confidence"],
+                        "source": "clarification_rerank",
+                        "mode": "interactive_refinement",
+                        "reasoning": "Final diagnosis updated after scoring the follow-up answers against the clarification candidates.",
+                    }
+                )
+                rescored["final_diagnosis"] = final
+                rescored["summary"] = (
+                    f"After clarification, the leading diagnosis is {best['label']} "
+                    f"(confidence {best['confidence']:.2f})."
+                )
+
+        clarification = rescored.get("clarification", {}) or {}
+        if clarification:
+            clarification["applied"] = True
+            clarification["answers_used"] = normalized_answers
+            rescored["clarification"] = clarification
+        return rescored
+
+    @classmethod
     def _normalize_label(cls, value: str) -> str:
         return " ".join(str(value or "").strip().lower().replace("-", " ").replace("_", " ").split())
+
+    @staticmethod
+    def _is_arabic_text(text: str) -> bool:
+        if not text or not str(text).strip():
+            return False
+        raw = str(text)
+        arabic_chars = sum(1 for char in raw if "\u0600" <= char <= "\u06ff")
+        return arabic_chars / max(len(raw), 1) > 0.2
 
     @classmethod
     def _is_symptom_like_label(cls, label: str, patient_symptoms: list[str]) -> bool:
@@ -279,68 +749,17 @@ class DiagnosisEngine:
         classifier_prediction: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         rule_conditions = [str(item.get("condition", "")) for item in findings if item.get("condition")]
-        rag_structured = (rag_out or {}).get("structured_diagnosis") or {}
-        rag_findings = rag_structured.get("findings") or []
-        rag_summary = str(rag_structured.get("assessment_summary", "")).strip()
-
-        candidates: list[Dict[str, Any]] = []
-
-        if classifier_prediction:
-            label = str(classifier_prediction.get("predicted_label", "")).strip()
-            confidence = cls._normalize_confidence(classifier_prediction.get("confidence"))
-            if label and not cls._is_symptom_like_label(label, patient_symptoms):
-                candidates.append(
-                    {
-                        "label": label,
-                        "confidence": confidence,
-                        "source": "classifier",
-                        "reasoning": f"Fine-tuned classifier prediction with confidence {confidence:.2f}.",
-                        "evidence": [
-                            f"Classifier top label: {label}",
-                        ],
-                    }
-                )
-
-        if rag_findings:
-            rag_diagnosis_findings = [
-                item for item in rag_findings
-                if not cls._is_symptom_like_label(str(item.get("condition", "")).strip(), patient_symptoms)
-            ]
-            if rag_diagnosis_findings:
-                rag_best = max(
-                    rag_diagnosis_findings,
-                    key=lambda item: cls._normalize_confidence(item.get("confidence")),
-                )
-                rag_label = str(rag_best.get("condition", "")).strip()
-                rag_confidence = cls._normalize_confidence(rag_best.get("confidence"))
-                candidates.append(
-                    {
-                        "label": rag_label,
-                        "confidence": rag_confidence,
-                        "source": "rag",
-                        "reasoning": rag_summary or "RAG structured assessment based on retrieved clinical cases.",
-                        "evidence": [
-                            str(rag_best.get("evidence", "")).strip() or "RAG finding extracted from similar cases.",
-                        ],
-                    }
-                )
-
-        if rag_out and rag_out.get("retrieved_cases"):
-            top_case = rag_out["retrieved_cases"][0]
-            rag_label = str(top_case.get("pathology", "")).strip()
-            rag_confidence = max(0.3, min(float(top_case.get("similarity", 0.0)), 0.8))
-            if rag_label and not cls._is_symptom_like_label(rag_label, patient_symptoms):
-                candidates.append(
-                    {
-                        "label": rag_label,
-                        "confidence": rag_confidence,
-                        "source": "rag_retrieval",
-                        "reasoning": "Nearest-neighbor retrieval from similar indexed medical cases.",
-                        "evidence": [
-                            f"Top retrieved case pathology: {rag_label}",
-                        ],
-                    }
-                )
+        candidates = cls._collect_diagnostic_candidates(
+            findings=findings,
+            patient_symptoms=patient_symptoms,
+            rag_out=rag_out,
+            classifier_prediction=classifier_prediction,
+        )
+        ai_candidates = [
+            candidate
+            for candidate in candidates
+            if any(source in {"classifier", "rag", "rag_retrieval"} for source in candidate["sources"])
+        ]
 
         classifier_label = (
             str(classifier_prediction.get("predicted_label", "")).strip()
@@ -348,8 +767,8 @@ class DiagnosisEngine:
             else ""
         )
         rag_label = ""
-        for candidate in candidates:
-            if candidate["source"] in {"rag", "rag_retrieval"}:
+        for candidate in ai_candidates:
+            if any(source in {"rag", "rag_retrieval"} for source in candidate["sources"]):
                 rag_label = candidate["label"]
                 break
 
@@ -369,8 +788,8 @@ class DiagnosisEngine:
                 next(
                     (
                         candidate["confidence"]
-                        for candidate in candidates
-                        if candidate["source"] in {"rag", "rag_retrieval"}
+                        for candidate in ai_candidates
+                        if any(source in {"rag", "rag_retrieval"} for source in candidate["sources"])
                     ),
                     0.0,
                 ),
@@ -402,23 +821,48 @@ class DiagnosisEngine:
                 ),
             }
 
-        if candidates:
+        if ai_candidates:
+            classifier_candidate = next(
+                (
+                    item for item in ai_candidates
+                    if "classifier" in item["sources"] and cls._labels_overlap(item["label"], classifier_label)
+                ),
+                None,
+            )
+            rag_candidate = next(
+                (
+                    item for item in ai_candidates
+                    if any(source in {"rag", "rag_retrieval"} for source in item["sources"])
+                ),
+                None,
+            )
             ranked_candidates = sorted(
-                candidates,
+                ai_candidates,
                 key=lambda item: (
-                    item["confidence"] + (0.03 if item["source"] == "rag" else 0.0),
-                    item["source"] == "rag",
+                    "classifier" in item["sources"],
+                    item["confidence"],
+                    "rag" in item["sources"] or "rag_retrieval" in item["sources"],
                 ),
                 reverse=True,
             )
             selected = ranked_candidates[0]
-            if selected["source"] == "classifier" and not classifier_primary:
-                rag_candidate = next(
-                    (item for item in ranked_candidates if item["source"] in {"rag", "rag_retrieval"}),
-                    None,
-                )
-                if rag_candidate is not None:
-                    selected = rag_candidate
+            if classifier_candidate and classifier_primary:
+                selected = classifier_candidate
+                if rag_candidate and not cls._labels_overlap(classifier_candidate["label"], rag_candidate["label"]):
+                    rag_advantage = rag_candidate["confidence"] - classifier_candidate["confidence"]
+                    if rag_advantage >= cls.CLASSIFIER_OVERRIDE_MARGIN and not any(
+                        cls._labels_overlap(classifier_candidate["label"], condition)
+                        for condition in rule_conditions
+                    ):
+                        selected = rag_candidate
+            elif classifier_candidate and classifier_supportive:
+                selected = classifier_candidate
+                if rag_candidate and not cls._labels_overlap(classifier_candidate["label"], rag_candidate["label"]):
+                    rag_advantage = rag_candidate["confidence"] - classifier_candidate["confidence"]
+                    if rag_advantage >= cls.CLASSIFIER_OVERRIDE_MARGIN * 1.5:
+                        selected = rag_candidate
+            elif "classifier" in selected["sources"] and not classifier_primary and rag_candidate is not None:
+                selected = rag_candidate
 
             supporting_evidence = list(dict.fromkeys(selected["evidence"]))
             if rule_conditions:
@@ -435,7 +879,7 @@ class DiagnosisEngine:
             return {
                 "diagnosis": selected["label"],
                 "confidence": round(selected["confidence"], 2),
-                "source": selected["source"],
+                "source": selected["sources"][0],
                 "mode": "ai_primary",
                 "reasoning": selected["reasoning"],
                 "supporting_evidence": supporting_evidence,
@@ -521,7 +965,21 @@ class DiagnosisEngine:
         *,
         final_diagnosis: Optional[Dict[str, Any]] = None,
         classifier_prediction: Optional[Dict[str, Any]] = None,
+        clarification: Optional[Dict[str, Any]] = None,
     ) -> str:
+        if clarification and clarification.get("needed"):
+            candidate_labels = [item.get("label", "") for item in clarification.get("candidate_diseases", [])]
+            if candidate_labels:
+                return (
+                    "The first-pass assessment is still uncertain. "
+                    f"Current leading possibilities are {', '.join(candidate_labels[:3])}. "
+                    "Answering the follow-up questions will help refine the diagnosis."
+                )
+            return (
+                "The first-pass assessment is still uncertain. "
+                "Follow-up questions are needed before making a stronger diagnostic claim."
+            )
+
         if final_diagnosis:
             diagnosis = final_diagnosis.get("diagnosis", "an undetermined condition")
             confidence = cls._normalize_confidence(final_diagnosis.get("confidence"))
@@ -631,10 +1089,37 @@ class DiagnosisEngine:
         if final_diagnosis:
             result["final_diagnosis"] = final_diagnosis
 
+        candidates = self._collect_diagnostic_candidates(
+            findings=findings_payload,
+            patient_symptoms=patient_symptoms,
+            rag_out=rag_out,
+            classifier_prediction=classifier_prediction,
+        )
+        if candidates:
+            result["diagnostic_candidates"] = [
+                {
+                    "label": candidate["label"],
+                    "confidence": round(candidate["confidence"], 2),
+                    "sources": candidate["sources"],
+                }
+                for candidate in candidates[:5]
+            ]
+
+        clarification = self._build_clarification(
+            report=report,
+            findings=findings_payload,
+            patient_symptoms=patient_symptoms,
+            candidates=candidates,
+            final_diagnosis=final_diagnosis,
+        )
+        if clarification:
+            result["clarification"] = clarification
+
         result["summary"] = self._build_summary(
             findings_payload,
             final_diagnosis=final_diagnosis,
             classifier_prediction=classifier_prediction,
+            clarification=clarification,
         )
 
         result["decision_fusion"] = self._build_decision_fusion(

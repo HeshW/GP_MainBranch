@@ -79,6 +79,22 @@ export async function postSymptoms(body: {
   return data as AnalysisResponse;
 }
 
+export async function postClarification(body: {
+  report: Record<string, unknown>;
+  diagnosis?: Record<string, unknown>;
+  answers: string[];
+  low_confidence_threshold?: number;
+}): Promise<AnalysisResponse> {
+  const res = await fetch(`${API_BASE}/api/v1/pipeline/diagnosis/clarify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await parseJson(res);
+  if (!res.ok) throw new Error(extractError(data, res));
+  return data as AnalysisResponse;
+}
+
 export async function postChat(body: {
   session_id: string;
   message: string;

@@ -134,3 +134,79 @@ def test_run_from_symptoms_preserves_original_raw_text():
     assert "Patient-reported complaint" in result["validated"]["raw_text"]
     assert "Duration: for two weeks" in result["validated"]["raw_text"]
     assert result["normalized_text"] == result["validated"]["raw_text"]
+
+
+def test_run_from_symptoms_excludes_negated_symptoms():
+    manager = ChatManager()
+
+    result = run_async(manager.run_from_symptoms("I have fatigue but no fever and no cough."))
+
+    assert "fatigue" in result["validated"]["symptoms"]
+    assert "fever" not in result["validated"]["symptoms"]
+    assert "cough" not in result["validated"]["symptoms"]
+    assert "fever" in result["validated"]["negated_symptoms"]
+
+
+def test_run_clarification_merges_follow_up_answers_and_re_diagnoses(monkeypatch):
+    manager = ChatManager()
+
+    class StubDiagnosisEngine:
+        def apply_follow_up_scoring(self, diagnosis, *, answers, prior_diagnosis=None):
+            diagnosis["final_diagnosis"]["diagnosis"] = "Atrial fibrillation"
+            diagnosis["final_diagnosis"]["source"] = "clarification_rerank"
+            return diagnosis
+
+        async def diagnose(self, report):
+            raw_text = str(report.get("raw_text", "")).lower()
+            symptoms = [str(item).lower() for item in report.get("symptoms", [])]
+            if "palpitations" in raw_text or "palpitations" in symptoms:
+                return {
+                    "findings": [],
+                    "summary": "AI-assisted assessment suggests Atrial fibrillation.",
+                    "final_diagnosis": {
+                        "diagnosis": "Atrial fibrillation",
+                        "confidence": 0.88,
+                        "source": "classifier",
+                        "mode": "ai_primary",
+                    },
+                    "clarification": None,
+                }
+            return {
+                "findings": [],
+                "summary": "The first-pass assessment is still uncertain.",
+                "final_diagnosis": {
+                    "diagnosis": "Pericarditis",
+                    "confidence": 0.42,
+                    "source": "classifier",
+                    "mode": "ai_primary",
+                },
+                "clarification": {
+                    "needed": True,
+                    "questions": [
+                        {
+                            "question": "Is the chest discomfort related to exertion, deep breathing, or an irregular heartbeat/palpitations?",
+                            "target_conditions": ["Pericarditis", "Atrial fibrillation"],
+                        }
+                    ],
+                },
+            }
+
+    monkeypatch.setattr(manager, "_diagnosis_engine", StubDiagnosisEngine())
+
+    initial_report = {
+        "raw_text": "Chest pain and shortness of breath",
+        "symptoms": ["chest pain", "shortness of breath"],
+        "labs": {},
+    }
+
+    result = run_async(
+        manager.run_clarification(
+            initial_report,
+            ["The pain comes with palpitations and an irregular heartbeat."],
+        )
+    )
+
+    assert result["diagnosis"]["final_diagnosis"]["diagnosis"] == "Atrial fibrillation"
+    assert "Follow-up clarification" in result["report"]["raw_text"]
+    assert "palpitations" in result["report"]["symptoms"]
+    assert result["follow_up"]["answers"]

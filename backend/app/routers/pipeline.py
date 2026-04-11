@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.deps import get_chat_manager
 from app.schemas.pipeline import (
+    ClarificationRequest,
     DiagnosisFromSymptomsRequest,
     DiagnosisOnlyRequest,
     LabsPipelineRequest,
@@ -120,5 +121,18 @@ async def pipeline_diagnosis_from_symptoms(
 ) -> Dict[str, Any]:
     return await manager.run_from_symptoms(
         body.text,
+        low_confidence_threshold=body.low_confidence_threshold,
+    )
+
+
+@router.post("/pipeline/diagnosis/clarify")
+async def pipeline_diagnosis_clarify(
+    body: ClarificationRequest,
+    manager: ChatManager = Depends(get_chat_manager),
+) -> Dict[str, Any]:
+    return await manager.run_clarification(
+        body.report,
+        body.answers,
+        prior_diagnosis=body.diagnosis,
         low_confidence_threshold=body.low_confidence_threshold,
     )

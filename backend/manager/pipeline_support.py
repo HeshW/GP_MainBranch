@@ -77,3 +77,47 @@ def build_manual_input_from_validated(validated: Dict[str, Any]) -> Dict[str, An
             for key, value in validated.get("labs", {}).items()
         },
     }
+
+
+def merge_follow_up_into_report(
+    report: Dict[str, Any],
+    *,
+    normalized_follow_up_text: str,
+    follow_up_symptoms: Optional[List[str]] = None,
+    follow_up_labs: Optional[Dict[str, Any]] = None,
+    raw_follow_up_answers: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    merged = dict(report or {})
+    base_raw_text = str(merged.get("raw_text", "") or "").strip()
+    follow_up_text = str(normalized_follow_up_text or "").strip()
+
+    if follow_up_text:
+        if base_raw_text:
+            merged["raw_text"] = (
+                f"{base_raw_text}\n\nFollow-up clarification:\n{follow_up_text}"
+            ).strip()
+        else:
+            merged["raw_text"] = follow_up_text
+
+    existing_symptoms = [
+        str(item).strip().lower()
+        for item in (merged.get("symptoms", []) or [])
+        if str(item).strip()
+    ]
+    new_symptoms = [
+        str(item).strip().lower()
+        for item in (follow_up_symptoms or [])
+        if str(item).strip()
+    ]
+    merged["symptoms"] = list(dict.fromkeys(existing_symptoms + new_symptoms))
+
+    existing_labs = merged.get("labs", {}) or {}
+    merged["labs"] = {
+        **existing_labs,
+        **(follow_up_labs or {}),
+    }
+
+    if raw_follow_up_answers:
+        merged["follow_up_answers"] = [str(item).strip() for item in raw_follow_up_answers if str(item).strip()]
+
+    return merged

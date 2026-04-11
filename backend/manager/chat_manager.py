@@ -132,6 +132,7 @@ class ChatManager:
             "status": "ok",
             "id": None,
             "ocr": report if image is not None else None,
+            "report": report,
             "diagnosis": diagnosis_result["diagnosis"],
             "therapy": diagnosis_result["therapy"],
             "warnings": warnings,
@@ -168,6 +169,62 @@ class ChatManager:
             }
         )
         return pipeline_result
+
+    async def run_clarification(
+        self,
+        report: Dict[str, Any],
+        answers: list[str],
+        *,
+        prior_diagnosis: Optional[Dict[str, Any]] = None,
+        low_confidence_threshold: float = 0.7,
+    ) -> Dict[str, Any]:
+        """Re-run diagnosis after incorporating follow-up answers into the report."""
+        from manager.pipeline_support import merge_follow_up_into_report
+        from manager.symptom_parser import parse_symptoms
+        from manager.symptom_normalizer import build_normalized_symptom_text
+        from manager.symptom_validator import validate_parsed
+
+        if not isinstance(report, dict):
+            raise TypeError("report must be a dictionary")
+        if not isinstance(answers, list):
+            raise TypeError("answers must be a list of strings")
+
+        joined_answers = " ".join(str(item).strip() for item in answers if str(item).strip()).strip()
+        parsed = parse_symptoms(joined_answers)
+        validated = validate_parsed(
+            parsed,
+            low_confidence_threshold=low_confidence_threshold,
+        )
+        normalized_text = build_normalized_symptom_text(parsed, validated)
+        updated_report = merge_follow_up_into_report(
+            report,
+            normalized_follow_up_text=normalized_text,
+            follow_up_symptoms=list(validated.get("symptoms", [])),
+            follow_up_labs={
+                key: value["value"]
+                for key, value in validated.get("labs", {}).items()
+            },
+            raw_follow_up_answers=answers,
+        )
+
+        diagnosis_result = await self.run_diagnosis_only(updated_report)
+        diagnosis_result["diagnosis"] = self._diagnosis_engine.apply_follow_up_scoring(
+            diagnosis_result["diagnosis"],
+            answers=answers,
+            prior_diagnosis=prior_diagnosis,
+        )
+        diagnosis_result.update(
+            {
+                "follow_up": {
+                    "answers": [str(item).strip() for item in answers if str(item).strip()],
+                    "parsed": parsed,
+                    "validated": validated,
+                    "normalized_text": normalized_text,
+                    "updated_report": updated_report,
+                }
+            }
+        )
+        return diagnosis_result
 
     async def run_chat(self, session_id: str, message: str) -> Dict[str, Any]:
         """Generate a non-streaming chat reply with lightweight session memory."""

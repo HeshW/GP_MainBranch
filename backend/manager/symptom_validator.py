@@ -11,6 +11,17 @@ from manager.symptom_parser import _get_lab_aliases
 
 
 LOW_CONFIDENCE_THRESHOLD = 0.7
+SYMPTOM_CANONICAL_MAP = {
+    "dyspnea": "shortness of breath",
+    "breathlessness": "shortness of breath",
+    "irregular heartbeat": "palpitations",
+    "rapid heartbeat": "palpitations",
+    "heartburn": "reflux",
+    "acid reflux": "reflux",
+    "droopy eyelid": "ptosis",
+    "drooping eyelid": "ptosis",
+    "blurry vision": "blurred vision",
+}
 
 
 def _canonical_lab_name(name: str) -> str:
@@ -37,6 +48,11 @@ def _normalize_unit(lab_key: str, unit: Optional[str]) -> Optional[str]:
         "%": "%",
     }
     return replacements.get(unit, unit)
+
+
+def _canonical_symptom_name(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    return SYMPTOM_CANONICAL_MAP.get(normalized, normalized)
 
 
 def validate_parsed(parsed: Dict[str, Any], low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD) -> Dict[str, Any]:
@@ -78,13 +94,24 @@ def validate_parsed(parsed: Dict[str, Any], low_confidence_threshold: float = LO
         }
         confidence_map[canonical_key] = max(0.0, min(1.0, confidence))
 
+    negated_symptoms: set[str] = set()
     symptom_texts: List[str] = []
     for sym in symptoms_in:
         if not isinstance(sym, dict):
             continue
         s = sym.get("symptom")
         if s and isinstance(s, str):
-            symptom_texts.append(s.lower().strip())
+            normalized_symptom = _canonical_symptom_name(s)
+            if sym.get("negated"):
+                negated_symptoms.add(normalized_symptom)
+                continue
+            symptom_texts.append(normalized_symptom)
+
+    symptom_texts = [
+        symptom
+        for symptom in dict.fromkeys(symptom_texts)
+        if symptom and symptom not in negated_symptoms
+    ]
 
     review_required = False
     details: List[Dict[str, Any]] = []
@@ -102,6 +129,8 @@ def validate_parsed(parsed: Dict[str, Any], low_confidence_threshold: float = LO
         "labs": validated_labs,
         "symptoms": symptom_texts,
         "raw_text": str(parsed.get("raw_text", "") or ""),
+        "context": parsed.get("context", {}) or {},
+        "negated_symptoms": sorted(negated_symptoms),
         "confidence": confidence_map,
         "warnings": warnings,
         "review_required": review_required,

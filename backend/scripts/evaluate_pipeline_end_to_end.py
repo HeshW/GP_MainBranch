@@ -11,6 +11,7 @@ Supported case types
 This script exports:
 - top-1 final diagnosis accuracy
 - top-3 diagnosis accuracy
+- clarification-aware one-shot vs post-clarification metrics when follow-up answers are provided
 - macro precision / recall / F1
 - legacy diagnosis_hit_rate
 - therapy / safety / fusion metadata rates
@@ -339,12 +340,41 @@ async def evaluate_case(
     safety_present = "safety" in result.get("diagnosis", {})
     fusion_present = "decision_fusion" in result.get("diagnosis", {})
     diagnosis = result.get("diagnosis", {})
+    clarification = diagnosis.get("clarification", {}) or {}
+    clarification_needed = bool(clarification.get("needed"))
+    clarification_question_count = len(clarification.get("questions", []) or [])
     final_diagnosis = diagnosis.get("final_diagnosis", {}) or {}
     primary_source = str(final_diagnosis.get("source", "")).strip() or "none"
     rule_covered = (
         primary_source.startswith("rules")
         or any(str(item.get("source", "")).endswith("rules") for item in diagnosis.get("findings", []) or [])
     )
+
+    follow_up_answers = [
+        str(item).strip() for item in case.get("follow_up_answers", []) if str(item).strip()
+    ]
+    clarification_result: Optional[dict[str, Any]] = None
+    clarification_top_1_prediction = ""
+    clarification_top_3_predictions: list[str] = []
+    clarification_top_1_correct = False
+    clarification_top_3_correct = False
+    clarification_top_1_clinical_match = False
+    clarification_top_3_clinical_match = False
+    clarification_applied = False
+
+    if clarification_needed and follow_up_answers and result.get("report"):
+        clarification_result = await manager.run_clarification(
+            result["report"],
+            follow_up_answers,
+            prior_diagnosis=result.get("diagnosis", {}),
+        )
+        clarification_applied = True
+        clarification_top_1_prediction = extract_final_diagnosis_label(clarification_result)
+        clarification_top_3_predictions = extract_top_k_predictions(clarification_result, k=3)
+        clarification_top_1_correct = clarification_top_1_prediction == primary_expected
+        clarification_top_3_correct = primary_expected in clarification_top_3_predictions
+        clarification_top_1_clinical_match = clinically_matches(primary_expected, clarification_top_1_prediction)
+        clarification_top_3_clinical_match = any_clinical_match(primary_expected, clarification_top_3_predictions)
 
     return {
         "case_id": case.get("id", f"case_{index:03d}"),
@@ -363,10 +393,28 @@ async def evaluate_case(
         "in_ai_scope": in_ai_scope,
         "primary_source": primary_source,
         "rule_covered": rule_covered,
+        "clarification_needed": clarification_needed,
+        "clarification_candidate_diseases": [
+            str(item.get("label", "")).strip()
+            for item in clarification.get("candidate_diseases", []) or []
+            if str(item.get("label", "")).strip()
+        ],
+        "follow_up_answers_provided": bool(follow_up_answers),
+        "clarification_applied": clarification_applied,
+        "clarification_question_count": clarification_question_count,
+        "clarification_top_1_prediction": clarification_top_1_prediction,
+        "clarification_top_3_predictions": clarification_top_3_predictions,
+        "clarification_top_1_correct": clarification_top_1_correct,
+        "clarification_top_3_correct": clarification_top_3_correct,
+        "clarification_top_1_clinical_match": clarification_top_1_clinical_match,
+        "clarification_top_3_clinical_match": clarification_top_3_clinical_match,
         "therapy_present": therapy_present,
         "safety_present": safety_present,
         "fusion_present": fusion_present,
+        "latency_ms": float(result.get("elapsed_ms", 0.0) or 0.0),
+        "clarification_latency_ms": float((clarification_result or {}).get("elapsed_ms", 0.0) or 0.0),
         "result": result,
+        "clarification_result": clarification_result,
     }
 
 
@@ -410,6 +458,8 @@ async def main_async() -> None:
     in_scope_details = [item for item in details if item["in_ai_scope"]]
     out_of_scope_details = [item for item in details if not item["in_ai_scope"]]
     source_distribution = dict(Counter(item["primary_source"] for item in details))
+    clarification_needed_details = [item for item in details if item["clarification_needed"]]
+    clarification_applied_details = [item for item in details if item["clarification_applied"]]
 
     total = len(details)
     summary = {
@@ -450,6 +500,49 @@ async def main_async() -> None:
         ),
         "rules_primary_rate": (
             sum(int(str(item["primary_source"]).startswith("rules")) for item in details) / total if total else 0.0
+        ),
+        "clarification_rate": (
+            len(clarification_needed_details) / total if total else 0.0
+        ),
+        "follow_up_answers_available_rate": (
+            sum(int(item["follow_up_answers_provided"]) for item in details) / total if total else 0.0
+        ),
+        "clarification_applied_rate": (
+            len(clarification_applied_details) / total if total else 0.0
+        ),
+        "average_clarification_questions": (
+            sum(item["clarification_question_count"] for item in clarification_needed_details) / len(clarification_needed_details)
+            if clarification_needed_details else 0.0
+        ),
+        "average_latency_ms": (
+            sum(item["latency_ms"] for item in details) / total if total else 0.0
+        ),
+        "average_post_clarification_latency_ms": (
+            sum(item["clarification_latency_ms"] for item in clarification_applied_details) / len(clarification_applied_details)
+            if clarification_applied_details else 0.0
+        ),
+        "post_clarification_top_1_accuracy": (
+            sum(int(item["clarification_top_1_correct"]) for item in clarification_applied_details) / len(clarification_applied_details)
+            if clarification_applied_details else 0.0
+        ),
+        "post_clarification_top_3_accuracy": (
+            sum(int(item["clarification_top_3_correct"]) for item in clarification_applied_details) / len(clarification_applied_details)
+            if clarification_applied_details else 0.0
+        ),
+        "post_clarification_clinical_top_1_accuracy": (
+            sum(int(item["clarification_top_1_clinical_match"]) for item in clarification_applied_details) / len(clarification_applied_details)
+            if clarification_applied_details else 0.0
+        ),
+        "post_clarification_clinical_top_3_accuracy": (
+            sum(int(item["clarification_top_3_clinical_match"]) for item in clarification_applied_details) / len(clarification_applied_details)
+            if clarification_applied_details else 0.0
+        ),
+        "clarification_accuracy_gain_top_1": (
+            (
+                sum(int(item["clarification_top_1_correct"]) for item in clarification_applied_details)
+                - sum(int(item["top_1_correct"]) for item in clarification_applied_details)
+            ) / len(clarification_applied_details)
+            if clarification_applied_details else 0.0
         ),
         "primary_source_distribution": source_distribution,
         "therapy_presence_rate": (
@@ -497,6 +590,12 @@ async def main_async() -> None:
                 "top_1_correct": item["top_1_correct"],
                 "top_3_correct": item["top_3_correct"],
                 "diagnosis_hit": item["diagnosis_hit"],
+                "clarification_needed": item["clarification_needed"],
+                "clarification_applied": item["clarification_applied"],
+                "clarification_top_1_prediction": item["clarification_top_1_prediction"],
+                "clarification_top_3_predictions": " | ".join(item["clarification_top_3_predictions"]),
+                "clarification_top_1_correct": item["clarification_top_1_correct"],
+                "clarification_top_3_correct": item["clarification_top_3_correct"],
             }
             for item in details
         ],
@@ -509,6 +608,12 @@ async def main_async() -> None:
             "top_1_correct",
             "top_3_correct",
             "diagnosis_hit",
+            "clarification_needed",
+            "clarification_applied",
+            "clarification_top_1_prediction",
+            "clarification_top_3_predictions",
+            "clarification_top_1_correct",
+            "clarification_top_3_correct",
         ],
     )
     write_rows_csv(

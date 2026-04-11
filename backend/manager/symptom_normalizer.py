@@ -89,6 +89,8 @@ def build_normalized_symptom_text(parsed: Dict[str, Any], validated: Dict[str, A
     symptom_phrases = _symptom_phrases(parsed_symptoms)
     duration_mentions = _extract_matches(raw_text, _DURATION_PATTERNS)
     context_mentions = _extract_matches(raw_text, _CONTEXT_PATTERNS)
+    validated_context = validated.get("context", {}) or {}
+    negated_symptoms = [str(item).strip().lower() for item in (validated.get("negated_symptoms", []) or []) if str(item).strip()]
 
     parts: List[str] = []
     if raw_text:
@@ -108,10 +110,22 @@ def build_normalized_symptom_text(parsed: Dict[str, Any], validated: Dict[str, A
     if ddx_style_cues:
         parts.append("DDX-style cues: " + " ".join(dict.fromkeys(ddx_style_cues)))
 
+    if negated_symptoms:
+        parts.append("Negated symptoms: " + ", ".join(dict.fromkeys(negated_symptoms[:10])))
+
     if duration_mentions:
         parts.append("Duration: " + ", ".join(duration_mentions))
 
     if context_mentions:
         parts.append("Context: " + ", ".join(context_mentions))
+
+    if validated_context:
+        context_segments = []
+        for key in ("duration", "onset", "triggers", "severity"):
+            values = [str(item).strip() for item in validated_context.get(key, []) if str(item).strip()]
+            if values:
+                context_segments.append(f"{key}: {', '.join(dict.fromkeys(values[:6]))}")
+        if context_segments:
+            parts.append("Structured context: " + " | ".join(context_segments))
 
     return ". ".join(parts).strip() or raw_text

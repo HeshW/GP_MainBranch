@@ -12,7 +12,7 @@ import { AppHeader, useMeta, AnalysisTab } from "@/shared";
 export default function App() {
   const [tab, setTab] = useState<AnalysisTab>("labs");
   const { meta, metaErr } = useMeta();
-  const { loading, result, error, runLabs, runImage, runSymptoms } = useAnalysis();
+  const { loading, result, error, runLabs, runImage, runSymptoms, runClarification } = useAnalysis();
 
   return (
     <div className="app-shell">
@@ -27,7 +27,7 @@ export default function App() {
           <SymptomsAnalysisPanel loading={loading} onRun={runSymptoms} />
         )}
 
-        <ResultView error={error} result={result} />
+        <ResultView error={error} result={result} onClarify={runClarification} />
       </main>
 
       <p className="footer-note">

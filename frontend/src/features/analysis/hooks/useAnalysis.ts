@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { postImage, postLabs, postSymptoms } from "@/shared/api";
+import { postClarification, postImage, postLabs, postSymptoms } from "@/shared/api";
 import { AnalysisResponse } from "@/shared/types";
 
 function parseLabsJson(labsJson: string): Record<string, unknown> {
@@ -72,6 +72,26 @@ export function useAnalysis() {
     }
   }, []);
 
+  const runClarification = useCallback(async (
+    report: Record<string, unknown>,
+    diagnosis: Record<string, unknown> | undefined,
+    answers: string[],
+  ) => {
+    beginRequest();
+    try {
+      const data = await postClarification({
+        report,
+        diagnosis,
+        answers,
+      });
+      setResult(data);
+    } catch (value) {
+      captureError(value);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   return {
     loading,
     result,
@@ -79,5 +99,6 @@ export function useAnalysis() {
     runLabs,
     runImage,
     runSymptoms,
+    runClarification,
   };
 }

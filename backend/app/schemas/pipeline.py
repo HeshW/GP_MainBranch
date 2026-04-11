@@ -56,6 +56,24 @@ class DiagnosisFromSymptomsRequest(BaseModel):
     low_confidence_threshold: float = Field(0.7, ge=0.0, le=1.0)
 
 
+class ClarificationRequest(BaseModel):
+    report: Dict[str, Any] = Field(
+        ...,
+        description="Previous prepared report or report returned from an earlier diagnostic pass.",
+    )
+    diagnosis: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional previous diagnosis payload containing clarification candidates/questions.",
+    )
+    answers: list[str] = Field(
+        ...,
+        min_length=1,
+        description="Patient answers to the generated follow-up questions.",
+        examples=[["Chest pain gets worse with exertion", "I also have palpitations"]],
+    )
+    low_confidence_threshold: float = Field(0.7, ge=0.0, le=1.0)
+
+
 class ErrorResponse(BaseModel):
     detail: str
     code: Optional[str] = None

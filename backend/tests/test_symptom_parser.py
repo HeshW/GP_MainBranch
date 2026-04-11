@@ -34,3 +34,15 @@ def test_parse_symptoms_detects_broader_human_medical_phrases():
     assert "hoarseness" in found
     assert "reflux" in found
     assert "shortness of breath" in found
+
+
+def test_parse_symptoms_supports_arabic_and_mixed_language():
+    text = "عندي ألم صدر وخفقان وضيق تنفس منذ يومين بعد الأكل"
+    parsed = parse_symptoms(text)
+    found = {sym["symptom"] for sym in parsed["symptoms"] if not sym.get("negated")}
+
+    assert "chest pain" in found
+    assert "palpitations" in found
+    assert "shortness of breath" in found
+    assert "duration" in parsed["context"]
+    assert "triggers" in parsed["context"]

@@ -25,6 +25,21 @@ export interface AnalysisResponse {
     warnings?: string[];
     review_required?: boolean;
   };
+  follow_up?: {
+    answers?: string[];
+    parsed?: {
+      raw_text?: string;
+      symptoms?: Array<{ symptom: string; source?: string; confidence?: number }>;
+      labs?: Record<string, unknown>;
+    };
+    validated?: {
+      symptoms?: string[];
+      warnings?: string[];
+      review_required?: boolean;
+    };
+    normalized_text?: string;
+    updated_report?: Record<string, unknown>;
+  };
   diagnosis?: {
     findings?: Array<{
       condition: string;
@@ -52,6 +67,27 @@ export interface AnalysisResponse {
       mode?: string;
       reasoning?: string;
       supporting_evidence?: string[];
+    };
+    diagnostic_candidates?: Array<{
+      label: string;
+      confidence?: number;
+      sources?: string[];
+    }>;
+    clarification?: {
+      needed?: boolean;
+      mode?: string;
+      reasons?: string[];
+      questions?: Array<{
+        question: string;
+        type?: string;
+        target_conditions?: string[];
+        reason?: string;
+      }>;
+      candidate_diseases?: Array<{
+        label: string;
+        confidence?: number;
+        sources?: string[];
+      }>;
     };
     gemini_response?: string;
     gemini_response_metadata?: {

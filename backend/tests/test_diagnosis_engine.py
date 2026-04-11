@@ -58,6 +58,7 @@ def test_diagnosis_returns_fusion_and_safety_metadata():
     assert out["safety"]["highest_rule_severity"] == "critical"
     assert out["safety"]["emergency_attention_recommended"] is True
     assert out["final_diagnosis"]["mode"] == "rules_fallback"
+    assert "clarification" not in out
 
 
 def test_classifier_becomes_primary_diagnosis_source(monkeypatch):
@@ -83,6 +84,33 @@ def test_classifier_becomes_primary_diagnosis_source(monkeypatch):
     assert out["final_diagnosis"]["diagnosis"] == "Influenza"
     assert out["decision_fusion"]["primary_source"] == "classifier"
     assert out["final_diagnosis"]["mode"] == "ai_primary"
+
+
+def test_classifier_is_preferred_over_retrieval_when_supportive():
+    final = DiagnosisEngine._build_final_diagnosis(
+        findings=[],
+        patient_symptoms=["chest pain", "shortness of breath"],
+        rag_out={
+            "retrieved_cases": [
+                {
+                    "pathology": "Pericarditis",
+                    "similarity": 0.43,
+                }
+            ]
+        },
+        classifier_prediction={
+            "predicted_label": "Atrial fibrillation",
+            "confidence": 0.41,
+            "top_predictions": [
+                {"label": "Atrial fibrillation", "confidence": 0.41},
+                {"label": "Pericarditis", "confidence": 0.37},
+            ],
+        },
+    )
+
+    assert final is not None
+    assert final["diagnosis"] == "Atrial fibrillation"
+    assert final["source"] == "classifier"
 
 
 def test_symptom_like_rag_condition_is_not_selected_as_final_diagnosis():
@@ -155,6 +183,160 @@ def test_lab_rule_overrides_conflicting_ai_label():
     assert final is not None
     assert final["diagnosis"] == "Diabetes Mellitus (suspected)"
     assert final["source"] == "rules_fallback"
+
+
+def test_uncertain_ai_case_returns_disease_targeted_follow_up_questions(monkeypatch):
+    class StubClassifier:
+        def __init__(self, model_dir, max_length=256, device=None):
+            pass
+
+        def predict(self, text):
+            return {
+                "predicted_label": "Pericarditis",
+                "confidence": 0.42,
+                "top_predictions": [
+                    {"label": "Pericarditis", "confidence": 0.42},
+                    {"label": "Pulmonary embolism", "confidence": 0.37},
+                    {"label": "Atrial fibrillation", "confidence": 0.31},
+                ],
+            }
+
+    monkeypatch.setattr("models.diagnosis.diagnosisengine.FineTunedDiagnosisClassifier", StubClassifier)
+
+    engine = DiagnosisEngine(
+        use_finetuned_classifier=True,
+        finetuned_model_dir="fake-model-dir",
+    )
+    out = run_async(
+        engine.diagnose(
+            {
+                "raw_text": "chest pain shortness of breath",
+                "symptoms": ["chest pain", "shortness of breath"],
+                "labs": {},
+            }
+        )
+    )
+
+    clarification = out.get("clarification")
+    assert clarification is not None
+    assert clarification["needed"] is True
+    assert clarification["questions"]
+    assert clarification["candidate_diseases"]
+    joined_questions = " ".join(item["question"] for item in clarification["questions"]).lower()
+    assert any(term in joined_questions for term in ["breathing", "palpitations", "exertion", "heartbeat"])
+
+
+def test_build_clarification_uses_suspected_diseases_for_questions():
+    clarification = DiagnosisEngine._build_clarification(
+        report={"raw_text": "reflux chest discomfort", "labs": {}, "symptoms": ["reflux"]},
+        findings=[],
+        patient_symptoms=["reflux"],
+        candidates=[
+            {
+                "label": "GERD",
+                "confidence": 0.61,
+                "sources": ["classifier"],
+                "reasoning": "Classifier",
+                "evidence": ["Classifier candidate: GERD"],
+                "rule_alignment": False,
+            },
+            {
+                "label": "Larygospasm",
+                "confidence": 0.56,
+                "sources": ["rag_retrieval"],
+                "reasoning": "RAG",
+                "evidence": ["Top retrieved case pathology: Larygospasm"],
+                "rule_alignment": False,
+            },
+        ],
+        final_diagnosis={
+            "diagnosis": "GERD",
+            "confidence": 0.61,
+            "source": "classifier",
+            "rule_alignment": False,
+        },
+    )
+
+    assert clarification is not None
+    questions = clarification["questions"]
+    assert questions
+    assert any("GERD" in item["target_conditions"] for item in questions)
+    assert any("Larygospasm" in item["target_conditions"] for item in questions)
+
+
+def test_apply_follow_up_scoring_can_promote_target_candidate():
+    updated = DiagnosisEngine.apply_follow_up_scoring(
+        {
+            "final_diagnosis": {
+                "diagnosis": "Pericarditis",
+                "confidence": 0.42,
+                "source": "classifier",
+            },
+            "diagnostic_candidates": [
+                {"label": "Pericarditis", "confidence": 0.42, "sources": ["classifier"]},
+                {"label": "Atrial fibrillation", "confidence": 0.37, "sources": ["classifier"]},
+            ],
+            "clarification": {
+                "needed": True,
+            },
+        },
+        answers=[
+            "There is irregular heartbeat with palpitations and this sounds like atrial fibrillation."
+        ],
+        prior_diagnosis={
+            "clarification": {
+                "candidate_diseases": [
+                    {"label": "Pericarditis", "confidence": 0.42, "sources": ["classifier"]},
+                    {"label": "Atrial fibrillation", "confidence": 0.37, "sources": ["classifier"]},
+                ],
+                "questions": [
+                    {
+                        "question": "Is the chest discomfort related to exertion, deep breathing, or an irregular heartbeat/palpitations?",
+                        "target_conditions": ["Pericarditis", "Atrial fibrillation"],
+                    }
+                ],
+            }
+        },
+    )
+
+    assert updated["final_diagnosis"]["diagnosis"] == "Atrial fibrillation"
+    assert updated["final_diagnosis"]["source"] == "clarification_rerank"
+
+
+def test_build_clarification_returns_arabic_questions_for_arabic_input():
+    clarification = DiagnosisEngine._build_clarification(
+        report={"raw_text": "عندي ألم صدر وخفقان", "labs": {}, "symptoms": ["chest pain", "palpitations"]},
+        findings=[],
+        patient_symptoms=["chest pain", "palpitations"],
+        candidates=[
+            {
+                "label": "Atrial fibrillation",
+                "confidence": 0.51,
+                "sources": ["classifier"],
+                "reasoning": "Classifier",
+                "evidence": ["Classifier candidate: Atrial fibrillation"],
+                "rule_alignment": False,
+            },
+            {
+                "label": "Pericarditis",
+                "confidence": 0.47,
+                "sources": ["rag_retrieval"],
+                "reasoning": "RAG",
+                "evidence": ["Top retrieved case pathology: Pericarditis"],
+                "rule_alignment": False,
+            },
+        ],
+        final_diagnosis={
+            "diagnosis": "Atrial fibrillation",
+            "confidence": 0.51,
+            "source": "classifier",
+            "rule_alignment": False,
+        },
+    )
+
+    assert clarification is not None
+    assert clarification["questions"]
+    assert any("هل" in item["question"] for item in clarification["questions"])
 
 
 def test_diagnose_raises_on_invalid_report_type():
