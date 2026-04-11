@@ -7,7 +7,7 @@ venv/
 .venv311/
 .venv311_clean/
 .env
-
+presentation/
 # AI Models & Data (Too large for Git)
 *.pth
 *.bin
