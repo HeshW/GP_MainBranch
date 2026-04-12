@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class DiagnosisResponseSynthesizer:
     """Generate a final patient-facing medical response after diagnosis fusion."""
 
-    def __init__(self, gemini_api_key: str, model_name: str = "gemini-2.5-flash") -> None:
+    def __init__(self, gemini_api_key: str, model_name: str = "gemini-2.5-flash-lite") -> None:
         self.api_key_valid = bool(str(gemini_api_key or "").strip())
         self._provider: Optional[GeminiProvider] = None
 

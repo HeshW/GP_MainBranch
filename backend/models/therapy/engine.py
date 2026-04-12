@@ -23,7 +23,7 @@ FALLBACK_MESSAGE = (
 class TherapyEngine:
     """Generate a structured therapy plan from diagnosis findings."""
 
-    def __init__(self, gemini_api_key: str, model_name: str = "gemini-2.5-flash") -> None:
+    def __init__(self, gemini_api_key: str, model_name: str = "gemini-2.5-flash-lite") -> None:
         self.api_key_valid = bool(str(gemini_api_key or "").strip())
         self._provider: Optional[GeminiProvider] = None
 

@@ -34,6 +34,7 @@ class ChatManager:
         clinicalbert_model_dir: Optional[Path | str] = None,
         allow_unsafe_pickle_metadata: bool = False,
         gemini_api_key: Optional[str] = None,
+        gemini_model_name: str = "gemini-2.5-flash-lite",
         rag_top_k: int = 5,
         rag_translate_arabic: bool = True,
         use_finetuned_classifier: bool = False,
@@ -47,6 +48,7 @@ class ChatManager:
             clinicalbert_model_dir=clinicalbert_model_dir,
             allow_unsafe_pickle_metadata=allow_unsafe_pickle_metadata,
             gemini_api_key=gemini_api_key,
+            gemini_model_name=gemini_model_name,
             rag_top_k=rag_top_k,
             rag_translate_arabic=rag_translate_arabic,
             use_finetuned_classifier=use_finetuned_classifier,
@@ -55,7 +57,8 @@ class ChatManager:
             classifier_translate_arabic=classifier_translate_arabic,
         )
         self._therapy_engine = TherapyEngine(
-            gemini_api_key=gemini_api_key if gemini_api_key else ""
+            gemini_api_key=gemini_api_key if gemini_api_key else "",
+            model_name=gemini_model_name,
         )
         self._chat_sessions = ChatSessionStore()
         self._ocr_engine: Any | None = None

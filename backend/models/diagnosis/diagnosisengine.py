@@ -127,6 +127,7 @@ class DiagnosisEngine:
         clinicalbert_model_dir: Optional[Path | str] = None,
         allow_unsafe_pickle_metadata: bool = False,
         gemini_api_key: Optional[str] = None,
+        gemini_model_name: str = "gemini-2.5-flash-lite",
         rag_top_k: int = 5,
         rag_translate_arabic: bool = True,
         use_finetuned_classifier: bool = False,
@@ -152,6 +153,7 @@ class DiagnosisEngine:
                 ),
                 translate_arabic=rag_translate_arabic,
                 gemini_api_key=gemini_api_key,
+                model_name=gemini_model_name,
             )
 
         if use_finetuned_classifier:
@@ -163,7 +165,7 @@ class DiagnosisEngine:
             )
             if classifier_translate_arabic and gemini_api_key:
                 self._classifier_translator = ArabicToEnglishTranslator(
-                    GeminiProvider(api_key=gemini_api_key, model_name="gemini-2.5-flash")
+                    GeminiProvider(api_key=gemini_api_key, model_name=gemini_model_name)
                 )
             elif classifier_translate_arabic and not gemini_api_key:
                 logger.warning(
@@ -171,7 +173,10 @@ class DiagnosisEngine:
                 )
 
         if gemini_api_key:
-            self._response_synthesizer = DiagnosisResponseSynthesizer(gemini_api_key=gemini_api_key)
+            self._response_synthesizer = DiagnosisResponseSynthesizer(
+                gemini_api_key=gemini_api_key,
+                model_name=gemini_model_name,
+            )
 
     @staticmethod
     def _build_safety(findings: list[Dict[str, Any]]) -> Dict[str, Any]:

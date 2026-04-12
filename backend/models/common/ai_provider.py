@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import abc
+import inspect
 import logging
 from typing import Any, AsyncGenerator, Optional, Type
 
@@ -43,7 +44,7 @@ class BaseModelProvider(abc.ABC):
 class GeminiProvider(BaseModelProvider):
     """Google GenAI implementation backed by ``google.genai``."""
 
-    def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash") -> None:
+    def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash-lite") -> None:
         self.model_name = model_name
         self._client = genai.Client(api_key=api_key)
 
@@ -118,11 +119,18 @@ class GeminiProvider(BaseModelProvider):
         )
 
         try:
-            async for chunk in self._client.aio.models.generate_content_stream(
+            stream_handle = self._client.aio.models.generate_content_stream(
                 model=self.model_name,
                 contents=prompt,
                 config=config,
-            ):
+            )
+
+            # google.genai may return either an async iterator directly or
+            # a coroutine that resolves to one, depending on SDK version.
+            if inspect.isawaitable(stream_handle):
+                stream_handle = await stream_handle
+
+            async for chunk in stream_handle:
                 text = getattr(chunk, "text", None)
                 if text:
                     yield text

@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     clinicalbert_model_dir: Optional[str] = None
     allow_unsafe_pickle_metadata: bool = False
     gemini_api_key: Optional[str] = None
+    gemini_model_name: str = "gemini-2.5-flash-lite"
     rag_top_k: int = 5
     rag_translate_arabic: bool = True
 

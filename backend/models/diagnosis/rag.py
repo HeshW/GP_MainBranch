@@ -483,7 +483,7 @@ class MedicalRAGAssistant:
         *,
         translate_arabic: bool = True,
         gemini_api_key: Optional[str] = None,
-        model_name: str = "gemini-2.5-flash",
+        model_name: str = "gemini-2.5-flash-lite",
     ) -> None:
         self.embedder = embedder
         self.searcher = searcher
