@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     faiss_index_dir: Optional[str] = None
     clinicalbert_model_dir: Optional[str] = None
     gemini_api_key: Optional[str] = None
-    rag_top_k: int = 5
+    rag_top_k: int = 7
     rag_translate_arabic: bool = True
 
     # Fine-tuned ClinicalBERT classifier (optional)

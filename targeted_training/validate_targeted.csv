@@ -1,0 +1,11 @@
+patient_id,pathology,combined_text,symptoms_text,language,difficulty,ambiguity_group,case_source
+targeted_unstable_angina_01_clarified,Unstable angina,"The chest pain has been getting worse and now comes even at rest with shortness of breath and sweating.
+
+Follow-up clarification: The pain is worsening and occurs at rest. There is shortness of breath, nausea, and diaphoresis with the pain. This is more concerning than stable exertional angina.",The chest pain has been getting worse and now comes even at rest with shortness of breath and sweating.,en,hard,unstable_angina_vs_generic_cardiopulmonary_red_flag,targeted_clarified
+targeted_viral_pharyngitis_01_clarified,Viral pharyngitis,"I have sore throat, fever, hoarseness, and some cold symptoms for the last couple of days.
+
+Follow-up clarification: The main problem is sore throat with mild fever. There is nasal congestion and mild cough. There is no chest pain or irregular palpitations.","I have sore throat, fever, hoarseness, and some cold symptoms for the last couple of days.",en,medium,viral_pharyngitis_vs_rag_noise,targeted_clarified
+targeted_atrial_fibrillation_01_clarified,Atrial fibrillation,"I feel irregular palpitations with dizziness, chest discomfort, and shortness of breath.
+
+Follow-up clarification: The heartbeat feels irregular rather than just fast. There is shortness of breath and chest discomfort during the irregular rhythm. This feels more like atrial fibrillation than PSVT.","I feel irregular palpitations with dizziness, chest discomfort, and shortness of breath.",en,hard,atrial_fibrillation_vs_psvt,targeted_clarified
+targeted_pulmonary_embolism_01_first_turn,Pulmonary embolism,The shortness of breath started suddenly and I have sharp chest pain that gets worse when I breathe.,The shortness of breath started suddenly and I have sharp chest pain that gets worse when I breathe.,en,hard,pulmonary_embolism_vs_generic_cardiopulmonary_pattern,targeted_first_turn

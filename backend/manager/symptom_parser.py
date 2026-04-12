@@ -18,7 +18,18 @@ SYMPTOM_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     ("cough", ("cough", "coughing", "كحة", "سعال")),
     ("productive cough", ("productive cough",)),
     ("dry cough", ("dry cough",)),
-    ("shortness of breath", ("shortness of breath", "dyspnea", "breathlessness", "ضيق تنفس", "نهجان", "صعوبة في التنفس")),
+    (
+        "shortness of breath",
+        (
+            "shortness of breath",
+            "short of breath",
+            "dyspnea",
+            "breathlessness",
+            "ضيق تنفس",
+            "نهجان",
+            "صعوبة في التنفس",
+        ),
+    ),
     ("wheezing", ("wheezing", "wheeze", "صفير", "أزيز")),
     ("chest pain", ("chest pain", "retrosternal pain", "pleuritic chest pain", "ألم صدر", "وجع صدر")),
     ("chest tightness", ("chest tightness", "tight chest")),
@@ -36,7 +47,10 @@ SYMPTOM_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     ("flushing", ("flushing", "flushed", "احمرار")),
     ("tingling", ("tingling", "pins and needles", "paresthesia")),
     ("gait difficulty", ("gait difficulty", "difficulty walking", "trouble walking")),
-    ("ptosis", ("ptosis", "drooping eyelid", "droopy eyelid", "تدلي الجفن", "ارتخاء الجفن")),
+    (
+        "ptosis",
+        ("ptosis", "drooping eyelid", "droopy eyelid", "drooping eyelids", "droopy eyelids", "تدلي الجفن", "ارتخاء الجفن"),
+    ),
     ("difficulty speaking", ("difficulty speaking", "slurred speech", "speech difficulty", "صعوبة الكلام", "تلعثم")),
     ("difficulty swallowing", ("difficulty swallowing", "trouble swallowing", "hard to swallow", "صعوبة البلع")),
     ("double vision", ("double vision", "diplopia")),
@@ -60,6 +74,14 @@ UNIT_PATTERNS = [
 ]
 
 ALIASES_PATH = Path(__file__).resolve().parents[1] / "models" / "ocr" / "synonyms_v15.json"
+_ENCODED_PRESENTING_SYMPTOMS_PATTERN = re.compile(
+    r"\bPresenting\s+symptoms?\s*:\s*(?:\d+(?:\s*@\s*(?:[Vv]\s*)?\d+)?\s*,\s*){6,}\d+(?:\s*@\s*(?:[Vv]\s*)?\d+)?\.?",
+    re.IGNORECASE,
+)
+_ENCODED_SEQUENCE_PATTERN = re.compile(
+    r"(?:\d+(?:\s*@\s*(?:[Vv]\s*)?\d+)?\s*,\s*){8,}\d+(?:\s*@\s*(?:[Vv]\s*)?\d+)?",
+    re.IGNORECASE,
+)
 
 
 def _load_aliases() -> Dict[str, str]:
@@ -166,14 +188,44 @@ def _extract_symptoms(raw_text: str) -> List[Dict[str, Any]]:
             found.append({"symptom": canonical, "source": matched_alias, "confidence": 0.85})
 
     negation_cues = ("no", "denies", "deny", "without", "not having", "negative for", "لا يوجد", "بدون", "ينفي", "مش")
+    negation_cues = negation_cues + ("ما في", "مافي", "ما عندي", "ليس")
     for canonical, aliases in SYMPTOM_PATTERNS:
         phrases = (canonical, *aliases)
         for phrase in phrases:
             escaped = re.escape(phrase)
-            negated = any(
-                re.search(rf"\b{cue}\b[^.!,;]{{0,20}}\b{escaped}\b", text, re.IGNORECASE)
-                for cue in negation_cues
-            )
+            negated = False
+            for cue in negation_cues:
+                pattern = re.compile(
+                    rf"\b{cue}\b[^.!,;\n]{{0,45}}\b{escaped}\b",
+                    re.IGNORECASE,
+                )
+                match = pattern.search(text)
+                if not match:
+                    continue
+                scope = text[match.start():match.end()]
+                if any(boundary in scope for boundary in (" لكن ", " but ", " however ", " although ")):
+                    continue
+                negated = True
+                break
+            if negated and str(phrase).strip().lower() == "cough":
+                productive_only_negation = any(
+                    re.search(
+                        rf"\b{cue}\b[^.!,;\n]{{0,45}}\bproductive\s+cough\b",
+                        text,
+                        re.IGNORECASE,
+                    )
+                    for cue in negation_cues
+                )
+                explicit_plain_cough_negation = any(
+                    re.search(
+                        rf"\b{cue}\b[^.!,;\n]{{0,45}}\b(?<!productive\s)cough\b",
+                        text,
+                        re.IGNORECASE,
+                    )
+                    for cue in negation_cues
+                )
+                if productive_only_negation and not explicit_plain_cough_negation:
+                    negated = False
             if negated:
                 found.append(
                     {
@@ -192,6 +244,7 @@ def _extract_context(raw_text: str) -> Dict[str, List[str]]:
     patterns = {
         "duration": [
             r"\bfor\s+\d+\s+(?:day|days|week|weeks|month|months|year|years)\b",
+            r"\bfor\s+\w+\s+(?:day|days|week|weeks|month|months|year|years)\b",
             r"\bsince\s+(?:yesterday|today|last night|last week|last month)\b",
             r"منذ\s+\w+",
             r"لمدة\s+\d+\s+\w+",
@@ -200,6 +253,7 @@ def _extract_context(raw_text: str) -> Dict[str, List[str]]:
             r"\bsudden(?:ly)?\b",
             r"\bgradual(?:ly)?\b",
             r"\bstarted suddenly\b",
+            r"\bacute\b",
             r"فجأة",
             r"تدريجي",
         ],
@@ -207,11 +261,20 @@ def _extract_context(raw_text: str) -> Dict[str, List[str]]:
             r"\bafter meals?\b",
             r"\bwith exertion\b",
             r"\bon exertion\b",
+            r"\bimproves with rest\b",
+            r"\bbetter with rest\b",
+            r"\brelief with rest\b",
+            r"\bat rest\b",
             r"\bwhen lying down\b",
             r"\bworse with breathing\b",
             r"بعد الأكل",
             r"مع المجهود",
             r"مع التنفس",
+            r"يتحسن مع الراحة",
+            r"يرتاح مع الراحة",
+            r"يخف مع الراحة",
+            r"في الراحة",
+            r"أثناء الراحة",
             r"عند الاستلقاء",
         ],
         "severity": [
@@ -240,16 +303,37 @@ def _extract_context(raw_text: str) -> Dict[str, List[str]]:
     return extracted
 
 
+def _strip_encoded_symptom_tails(raw_text: str) -> str:
+    """Remove long encoded DDX symptom-id blocks that pollute natural text input."""
+    if not raw_text.strip():
+        return raw_text
+
+    cleaned = _ENCODED_PRESENTING_SYMPTOMS_PATTERN.sub(" ", raw_text)
+    cleaned = _ENCODED_SEQUENCE_PATTERN.sub(" ", cleaned)
+
+    # Normalize punctuation spacing introduced by encoded-block removal.
+    cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
+    cleaned = re.sub(r"([,;:])(?=[^\s])", r"\1 ", cleaned)
+    cleaned = re.sub(r"(?<!\d)\.(?=[^\s\d])", ". ", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned.strip()
+
+
 def parse_symptoms(raw_text: str) -> Dict[str, Any]:
     if not isinstance(raw_text, str):
         raise TypeError("raw_text must be a string")
 
-    labs = _extract_labs(raw_text)
-    symptoms = _extract_symptoms(raw_text)
+    cleaned_text = _strip_encoded_symptom_tails(raw_text)
 
-    return {
-        "raw_text": raw_text,
+    labs = _extract_labs(cleaned_text)
+    symptoms = _extract_symptoms(cleaned_text)
+
+    parsed = {
+        "raw_text": cleaned_text,
         "labs": labs,
         "symptoms": symptoms,
-        "context": _extract_context(raw_text),
+        "context": _extract_context(cleaned_text),
     }
+    if cleaned_text != raw_text:
+        parsed["raw_text_original"] = raw_text
+    return parsed

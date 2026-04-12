@@ -7,12 +7,12 @@ CSV files with at least:
 - one text column, default: ``combined_text``
 - one label column, default: ``pathology``
 
-Typical usage from the repository root:
+Typical usage:
 
-    .\.venv_rag\Scripts\python.exe backend\scripts\train_clinicalbert_classifier.py ^
-        --train-csv path\to\train_processed.csv ^
-        --val-csv path\to\validate_processed.csv ^
-        --test-csv path\to\test_processed.csv
+    python train_clinicalbert_classifier.py \
+        --train-csv targeted_training/train_merged.csv \
+        --val-csv targeted_training/validate_merged.csv \
+        --test-csv targeted_training/test_merged.csv
 
 Outputs
 -------
@@ -31,6 +31,7 @@ import csv
 import json
 import math
 import random
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any, Optional
@@ -43,6 +44,19 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_
 
 
 MODEL_NAME = "emilyalsentzer/Bio_ClinicalBERT"
+DEFAULT_BASE_DIR = Path.cwd()
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
+
+def resolve_existing_path(*candidates: Path) -> Path:
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
 
 
 def set_seed(seed: int) -> None:
@@ -54,16 +68,48 @@ def set_seed(seed: int) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fine-tune ClinicalBERT on diagnosis labels.")
-    parser.add_argument("--train-csv", type=Path, required=True, help="Training CSV path")
-    parser.add_argument("--val-csv", type=Path, default=None, help="Validation CSV path")
-    parser.add_argument("--test-csv", type=Path, default=None, help="Test CSV path")
+    parser.add_argument(
+        "--train-csv",
+        type=Path,
+        default=resolve_existing_path(
+            DEFAULT_BASE_DIR / "targeted_training" / "train_merged.csv",
+            DEFAULT_BASE_DIR / "data" / "targeted_training" / "train_merged.csv",
+        ),
+        help="Training CSV path. Searches ./targeted_training/... then ./data/targeted_training/...",
+    )
+    parser.add_argument(
+        "--val-csv",
+        type=Path,
+        default=resolve_existing_path(
+            DEFAULT_BASE_DIR / "targeted_training" / "validate_merged.csv",
+            DEFAULT_BASE_DIR / "data" / "targeted_training" / "validate_merged.csv",
+        ),
+        help="Validation CSV path. Searches ./targeted_training/... then ./data/targeted_training/...",
+    )
+    parser.add_argument(
+        "--test-csv",
+        type=Path,
+        default=resolve_existing_path(
+            DEFAULT_BASE_DIR / "targeted_training" / "test_merged.csv",
+            DEFAULT_BASE_DIR / "data" / "targeted_training" / "test_merged.csv",
+        ),
+        help="Test CSV path. Searches ./targeted_training/... then ./data/targeted_training/...",
+    )
+    parser.add_argument(
+        "--model-name-or-dir",
+        default=resolve_existing_path(
+            DEFAULT_BASE_DIR / "clinicalbert_classifier_natural",
+            DEFAULT_BASE_DIR / "backend" / "artifacts" / "clinicalbert_classifier_natural",
+        ),
+        help="Base model name or existing fine-tuned model directory. Searches ./clinicalbert_classifier_natural then ./backend/artifacts/clinicalbert_classifier_natural",
+    )
     parser.add_argument("--text-column", default="combined_text", help="Text column name")
     parser.add_argument("--label-column", default="pathology", help="Label column name")
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("backend/artifacts/clinicalbert_classifier"),
-        help="Directory for model and metrics outputs",
+        default=DEFAULT_BASE_DIR / "clinicalbert_classifier_targeted",
+        help="Directory for model and metrics outputs. Default: ./clinicalbert_classifier_targeted",
     )
     parser.add_argument("--epochs", type=int, default=3, help="Training epochs")
     parser.add_argument("--batch-size", type=int, default=8, help="Batch size")
@@ -365,9 +411,9 @@ def main() -> None:
         if unseen:
             raise ValueError(f"{dataset_name} split contains unseen labels not in train split: {unseen}")
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_dir)
     model = AutoModelForSequenceClassification.from_pretrained(
-        MODEL_NAME,
+        args.model_name_or_dir,
         num_labels=len(label_to_id),
         id2label=id_to_label,
         label2id=label_to_id,
@@ -436,7 +482,7 @@ def main() -> None:
                 )
 
     summary: dict[str, Any] = {
-        "model_name": MODEL_NAME,
+        "model_name": args.model_name_or_dir,
         "train_size": len(train_rows),
         "val_size": len(val_rows),
         "test_size": len(test_rows),

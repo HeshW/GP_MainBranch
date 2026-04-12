@@ -212,6 +212,7 @@ class ChatManager:
             diagnosis_result["diagnosis"],
             answers=answers,
             prior_diagnosis=prior_diagnosis,
+            normalized_follow_up_text=normalized_text,
         )
         diagnosis_result.update(
             {

@@ -1,33 +1,48 @@
 import { useState } from "react";
-import {
-  ImageAnalysisPanel,
-  LabAnalysisPanel,
-  SymptomsAnalysisPanel,
-  TabNavigation,
-  useAnalysis,
-} from "@/features/analysis";
-import { ResultView } from "@/features/results";
-import { AppHeader, useMeta, AnalysisTab } from "@/shared";
+import { useDiagnosticChat } from "@/features/analysis";
+import { ChatInterface } from "@/features/chat";
+import { ReviewerPanel } from "@/features/results";
+import { AppHeader, useMeta } from "@/shared";
 
 export default function App() {
-  const [tab, setTab] = useState<AnalysisTab>("labs");
+  const [reviewerOpen, setReviewerOpen] = useState(false);
   const { meta, metaErr } = useMeta();
-  const { loading, result, error, runLabs, runImage, runSymptoms, runClarification } = useAnalysis();
+  const {
+    timeline,
+    latestAnalysis,
+    loading,
+    error,
+    clarificationState,
+    runSymptoms,
+    runLabs,
+    runImage,
+    submitClarificationAnswer,
+  } = useDiagnosticChat();
 
   return (
     <div className="app-shell">
       <AppHeader meta={meta} metaErr={metaErr} />
 
-      <main className="app-main">
-        <TabNavigation currentTab={tab} onTabChange={setTab} />
+      <main className="app-main chat-layout">
+        <section className="chat-column">
+          <ChatInterface
+            timeline={timeline}
+            loading={loading}
+            error={error}
+            clarificationState={clarificationState}
+            onSubmitSymptoms={runSymptoms}
+            onSubmitLabs={runLabs}
+            onSubmitImage={runImage}
+            onSubmitClarificationAnswer={submitClarificationAnswer}
+          />
+        </section>
 
-        {tab === "labs" && <LabAnalysisPanel loading={loading} onRun={runLabs} />}
-        {tab === "image" && <ImageAnalysisPanel loading={loading} onRun={runImage} />}
-        {tab === "symptoms" && (
-          <SymptomsAnalysisPanel loading={loading} onRun={runSymptoms} />
-        )}
-
-        <ResultView error={error} result={result} onClarify={runClarification} />
+        <ReviewerPanel
+          isOpen={reviewerOpen}
+          onToggle={() => setReviewerOpen((current) => !current)}
+          result={latestAnalysis}
+          error={error}
+        />
       </main>
 
       <p className="footer-note">

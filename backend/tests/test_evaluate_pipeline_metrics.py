@@ -71,3 +71,67 @@ def test_evaluate_case_tracks_post_clarification_predictions():
     assert detail["clarification_applied"] is True
     assert detail["clarification_top_1_prediction"] == "Atrial fibrillation"
     assert detail["clarification_top_1_correct"] is True
+
+
+def test_evaluate_case_tracks_clarification_question_quality_metrics():
+    class FakeManager:
+        async def run_from_symptoms(self, text):
+            return {
+                "report": {
+                    "raw_text": text,
+                    "symptoms": ["chest pain"],
+                    "labs": {},
+                },
+                "diagnosis": {
+                    "final_diagnosis": {
+                        "diagnosis": "Pericarditis",
+                    },
+                    "clarification": {
+                        "needed": True,
+                        "candidate_diseases": [
+                            {"label": "Pericarditis"},
+                            {"label": "Atrial fibrillation"},
+                        ],
+                        "questions": [
+                            {
+                                "question": "Is pain pleuritic or related to irregular heartbeat?",
+                                "target_conditions": ["Pericarditis", "Atrial fibrillation"],
+                            },
+                            {
+                                "question": "Did symptoms worsen while lying flat?",
+                                "target_conditions": ["Pericarditis"],
+                            },
+                        ],
+                    },
+                },
+                "therapy": {"therapy_plan": "placeholder"},
+            }
+
+        async def run_clarification(self, report, answers, prior_diagnosis=None):
+            return {
+                "report": report,
+                "diagnosis": {
+                    "final_diagnosis": {
+                        "diagnosis": "Pericarditis",
+                    }
+                },
+                "therapy": {"therapy_plan": "placeholder"},
+            }
+
+    detail = run_async(
+        evaluate_case(
+            FakeManager(),
+            {
+                "raw_text": "chest pain",
+                "expected_conditions": ["Pericarditis"],
+                "follow_up_answers": ["Pain is worse when breathing in."],
+            },
+            1,
+            supported_labels={"Atrial fibrillation", "Pericarditis"},
+        )
+    )
+
+    assert detail["clarification_question_count"] == 2
+    assert detail["clarification_multi_target_question_count"] == 1
+    assert detail["clarification_total_targets"] == 3
+    assert detail["clarification_avg_targets_per_question"] == 1.5

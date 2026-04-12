@@ -12,8 +12,8 @@ export function AppHeader({ meta, metaErr }: AppHeaderProps) {
         <div>
           <h1 className="app-title">GP Medical Report Analysis</h1>
           <p className="app-sub">
-            Graduation demo: OCR lab extraction, rule-based findings, and
-            optional RAG through one API and a cleaner web UI.
+            Chat-first diagnostic workflow with inline clarification and a
+            reviewer panel for technical pipeline details.
           </p>
         </div>
 

@@ -1,0 +1,15 @@
+patient_id,pathology,combined_text,symptoms_text,language,difficulty,ambiguity_group,case_source
+targeted_scombroid_01_clarified,Scombroid food poisoning,"Shortly after eating fish I developed flushing, palpitations, headache, and chest discomfort.
+
+Follow-up clarification: The symptoms began soon after eating fish. There is flushing with palpitations and headache. This food-triggered timing is the key clue.","Shortly after eating fish I developed flushing, palpitations, headache, and chest discomfort.",en,hard,scombroid_vs_arrhythmia,targeted_clarified
+targeted_myasthenia_01_clarified,Myasthenia gravis,"I have drooping eyelids, weak speech, and weakness that gets worse the more I use my muscles.
+
+Follow-up clarification: The weakness is fatigable and worsens with exertion. There is ptosis and difficulty speaking. This is more suggestive of myasthenia gravis than Guillain-Barre syndrome.","I have drooping eyelids, weak speech, and weakness that gets worse the more I use my muscles.",en,hard,myasthenia_vs_guillain_barre,targeted_clarified
+targeted_pulmonary_neoplasm_01_first_turn,Pulmonary neoplasm,"I have had a chronic cough for a while, I am losing weight, and breathing is getting harder over time.","I have had a chronic cough for a while, I am losing weight, and breathing is getting harder over time.",en,hard,pulmonary_neoplasm_vs_classifier_noise,targeted_first_turn
+targeted_spontaneous_pneumothorax_01_clarified,Spontaneous pneumothorax,"I suddenly developed sharp pain on one side of my chest and now I am short of breath.
+
+Follow-up clarification: The onset was sudden and the pain is one-sided. There is acute shortness of breath. There is no productive cough or fever.",I suddenly developed sharp pain on one side of my chest and now I am short of breath.,en,hard,spontaneous_pneumothorax_vs_generic_cardiopulmonary_red_flag,targeted_clarified
+targeted_gerd_01_first_turn,GERD,"I keep getting burning chest discomfort after meals with a sour taste in my mouth, and it gets worse when I lie down.","I keep getting burning chest discomfort after meals with a sour taste in my mouth, and it gets worse when I lie down.",en,medium,gerd_vs_cardiopulmonary_red_flag,targeted_first_turn
+targeted_bronchitis_01_clarified,Bronchitis,"I had a cold recently and now the cough is still there with mild chest discomfort and shortness of breath.
+
+Follow-up clarification: There was a recent upper respiratory infection followed by persistent cough. There is mild shortness of breath but no major weight loss. This feels respiratory rather than cardiac.",I had a cold recently and now the cough is still there with mild chest discomfort and shortness of breath.,en,medium,bronchitis_vs_generic_anemia_pattern,targeted_clarified

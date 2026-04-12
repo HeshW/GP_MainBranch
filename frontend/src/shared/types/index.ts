@@ -1,5 +1,30 @@
 export type AnalysisTab = "labs" | "image" | "symptoms";
 
+export type ChatMessageRole = "user" | "assistant" | "system";
+export type TimelineMessageKind = "note" | "diagnosis" | "clarification" | "error";
+
+export interface ClarificationQuestion {
+  question: string;
+  type?: string;
+  target_conditions?: string[];
+  reason?: string;
+}
+
+export interface ClarificationFlowState {
+  report: Record<string, unknown>;
+  diagnosis?: Record<string, unknown>;
+  questions: ClarificationQuestion[];
+  answers: string[];
+  nextQuestionIndex: number;
+}
+
+export interface ChatTimelineMessage {
+  id: string;
+  role: ChatMessageRole;
+  content: string;
+  kind: TimelineMessageKind;
+}
+
 export interface MetaInfo {
   api_version: string;
   rag_enabled: boolean;
@@ -75,14 +100,16 @@ export interface AnalysisResponse {
     }>;
     clarification?: {
       needed?: boolean;
+      completed?: boolean;
+      applied?: boolean;
+      answers_used?: string[];
+      rerank_top_label?: string;
+      rerank_top_confidence?: number;
+      rerank_top_gain?: number;
+      override_applied?: boolean;
       mode?: string;
       reasons?: string[];
-      questions?: Array<{
-        question: string;
-        type?: string;
-        target_conditions?: string[];
-        reason?: string;
-      }>;
+      questions?: ClarificationQuestion[];
       candidate_diseases?: Array<{
         label: string;
         confidence?: number;

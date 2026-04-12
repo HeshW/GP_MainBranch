@@ -25,9 +25,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+from datetime import datetime, timezone
 import json
 import pickle
 import re
+import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -40,6 +42,10 @@ if str(ROOT) not in sys.path:
 from app.config import get_settings
 from manager.chat_manager import ChatManager
 from manager.symptom_parser import parse_symptoms
+
+if hasattr(sys.stdout, "reconfigure"):
+    # Avoid cp1252 crashes when benchmark details contain non-ASCII labels/text.
+    sys.stdout.reconfigure(encoding="utf-8")
 
 FAMILY_KEYWORDS: dict[str, tuple[str, ...]] = {
     "anemia": ("anemia",),
@@ -94,6 +100,21 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--classifier-max-length", type=int, default=settings.classifier_max_length)
     parser.add_argument("--classifier-translate-arabic", action="store_true", default=settings.classifier_translate_arabic)
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="Optional run identifier for reproducible benchmark tracking.",
+    )
+    parser.add_argument(
+        "--bundle-id",
+        default=None,
+        help="Optional promoted artifact bundle identifier.",
+    )
+    parser.add_argument(
+        "--notes",
+        default="",
+        help="Optional free-text notes stored in summary metadata.",
+    )
     return parser.parse_args()
 
 
@@ -306,6 +327,106 @@ def build_output_paths(summary_path: Path) -> dict[str, Path]:
     }
 
 
+def default_run_id() -> str:
+    return datetime.now(timezone.utc).strftime("run_%Y%m%d_%H%M%S")
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def get_git_commit(repo_root: Path) -> Optional[str]:
+    try:
+        output = subprocess.check_output(
+            ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except Exception:
+        return None
+    commit = output.strip()
+    return commit or None
+
+
+def file_metadata(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "size_bytes": None,
+            "modified_utc": None,
+        }
+    stat = path.stat()
+    return {
+        "path": str(path),
+        "exists": True,
+        "size_bytes": stat.st_size,
+        "modified_utc": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+
+
+def load_json_if_exists(path: Optional[Path]) -> Optional[dict[str, Any]]:
+    if not path or not path.exists():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def summarize_by_ambiguity_group(details: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for item in details:
+        group = str(item.get("ambiguity_group") or "").strip()
+        if not group:
+            continue
+        bucket = grouped.setdefault(
+            group,
+            {
+                "num_cases": 0,
+                "top_1_correct_count": 0,
+                "top_3_correct_count": 0,
+                "clarification_applied_count": 0,
+                "clarification_top_1_correct_count": 0,
+                "clarification_improved_count": 0,
+                "average_clarification_questions": 0.0,
+                "_question_sum": 0,
+            },
+        )
+        bucket["num_cases"] += 1
+        bucket["top_1_correct_count"] += int(item.get("top_1_correct", False))
+        bucket["top_3_correct_count"] += int(item.get("top_3_correct", False))
+        if item.get("clarification_applied"):
+            bucket["clarification_applied_count"] += 1
+            bucket["clarification_top_1_correct_count"] += int(item.get("clarification_top_1_correct", False))
+            bucket["clarification_improved_count"] += int(
+                (not item.get("top_1_correct", False)) and item.get("clarification_top_1_correct", False)
+            )
+            bucket["_question_sum"] += int(item.get("clarification_question_count") or 0)
+
+    for bucket in grouped.values():
+        total = max(bucket["num_cases"], 1)
+        clar_total = bucket["clarification_applied_count"]
+        bucket["top_1_accuracy"] = bucket.pop("top_1_correct_count") / total
+        bucket["top_3_accuracy"] = bucket.pop("top_3_correct_count") / total
+        if clar_total:
+            bucket["post_clarification_top_1_accuracy"] = bucket.pop("clarification_top_1_correct_count") / clar_total
+            bucket["clarification_improved_rate"] = bucket.pop("clarification_improved_count") / clar_total
+            bucket["average_clarification_questions"] = bucket.pop("_question_sum") / clar_total
+        else:
+            # If clarification was not needed for a group, use one-shot top-1 as the effective post-clar quality.
+            bucket["post_clarification_top_1_accuracy"] = bucket["top_1_accuracy"]
+            bucket["clarification_improved_rate"] = 0.0
+            bucket["average_clarification_questions"] = 0.0
+            bucket.pop("clarification_top_1_correct_count")
+            bucket.pop("clarification_improved_count")
+            bucket.pop("_question_sum")
+
+    return grouped
+
+
 async def evaluate_case(
     manager: ChatManager,
     case: dict[str, Any],
@@ -342,7 +463,23 @@ async def evaluate_case(
     diagnosis = result.get("diagnosis", {})
     clarification = diagnosis.get("clarification", {}) or {}
     clarification_needed = bool(clarification.get("needed"))
-    clarification_question_count = len(clarification.get("questions", []) or [])
+    clarification_questions = clarification.get("questions", []) or []
+    clarification_question_count = len(clarification_questions)
+    clarification_total_targets = 0
+    clarification_multi_target_question_count = 0
+    for question in clarification_questions:
+        targets = [
+            str(item).strip()
+            for item in question.get("target_conditions", []) or []
+            if str(item).strip()
+        ]
+        clarification_total_targets += len(targets)
+        if len(targets) >= 2:
+            clarification_multi_target_question_count += 1
+    clarification_avg_targets_per_question = (
+        clarification_total_targets / clarification_question_count
+        if clarification_question_count else 0.0
+    )
     final_diagnosis = diagnosis.get("final_diagnosis", {}) or {}
     primary_source = str(final_diagnosis.get("source", "")).strip() or "none"
     rule_covered = (
@@ -378,6 +515,9 @@ async def evaluate_case(
 
     return {
         "case_id": case.get("id", f"case_{index:03d}"),
+        "ambiguity_group": str(case.get("ambiguity_group", "")).strip(),
+        "language": str(case.get("language", "")).strip(),
+        "difficulty": str(case.get("difficulty", "")).strip(),
         "mode": mode,
         "expected_conditions": expected_conditions,
         "primary_expected_condition": primary_expected,
@@ -402,6 +542,9 @@ async def evaluate_case(
         "follow_up_answers_provided": bool(follow_up_answers),
         "clarification_applied": clarification_applied,
         "clarification_question_count": clarification_question_count,
+        "clarification_multi_target_question_count": clarification_multi_target_question_count,
+        "clarification_total_targets": clarification_total_targets,
+        "clarification_avg_targets_per_question": clarification_avg_targets_per_question,
         "clarification_top_1_prediction": clarification_top_1_prediction,
         "clarification_top_3_predictions": clarification_top_3_predictions,
         "clarification_top_1_correct": clarification_top_1_correct,
@@ -418,8 +561,10 @@ async def evaluate_case(
     }
 
 
-async def main_async() -> None:
+async def main_async() -> dict[str, Any]:
     args = parse_args()
+    run_id = str(args.run_id).strip() if args.run_id else default_run_id()
+    bundle_id = str(args.bundle_id).strip() if args.bundle_id else run_id
     cases = load_cases(args.cases)
     output_paths = build_output_paths(args.output)
     finetuned_model_dir: Optional[Path] = args.finetuned_model_dir
@@ -460,9 +605,48 @@ async def main_async() -> None:
     source_distribution = dict(Counter(item["primary_source"] for item in details))
     clarification_needed_details = [item for item in details if item["clarification_needed"]]
     clarification_applied_details = [item for item in details if item["clarification_applied"]]
+    clarification_total_questions = sum(int(item.get("clarification_question_count") or 0) for item in clarification_needed_details)
+    clarification_total_targets = sum(int(item.get("clarification_total_targets") or 0) for item in clarification_needed_details)
+    clarification_cases_with_multi_target_question = sum(
+        int((item.get("clarification_multi_target_question_count") or 0) > 0)
+        for item in clarification_needed_details
+    )
+    clarification_improved_count = sum(
+        int((not item["top_1_correct"]) and item["clarification_top_1_correct"])
+        for item in clarification_applied_details
+    )
+    clarification_changed_top_1_count = sum(
+        int(bool(item["clarification_top_1_prediction"]) and item["clarification_top_1_prediction"] != item["top_1_prediction"])
+        for item in clarification_applied_details
+    )
+    low_information_clarification_count = sum(
+        int(
+            item["clarification_top_1_prediction"] == item["top_1_prediction"]
+            and item["clarification_top_3_predictions"] == item["top_3_predictions"]
+        )
+        for item in clarification_applied_details
+    )
+
+    classifier_summary_path = (finetuned_model_dir / "summary.json") if finetuned_model_dir else None
+    artifact_metadata = {
+        "bundle_id": bundle_id,
+        "faiss_index": file_metadata(args.faiss_index_dir / "medical_cases.index"),
+        "faiss_mapping": file_metadata(args.faiss_index_dir / "metadata_mapping.pkl"),
+        "faiss_index_info": load_json_if_exists(args.faiss_index_dir / "index_info.json"),
+        "classifier_model_dir": str(finetuned_model_dir) if finetuned_model_dir else None,
+        "classifier_summary": load_json_if_exists(classifier_summary_path),
+    }
 
     total = len(details)
     summary = {
+        "run_metadata": {
+            "run_id": run_id,
+            "bundle_id": bundle_id,
+            "evaluated_at_utc": utc_now_iso(),
+            "script": "evaluate_pipeline_end_to_end.py",
+            "git_commit": get_git_commit(ROOT.parent),
+            "notes": str(args.notes or "").strip(),
+        },
         "num_cases": total,
         "top_1_accuracy": (sum(int(item["top_1_correct"]) for item in details) / total if total else 0.0),
         "top_3_accuracy": top_k_accuracy(y_true, top_3_predictions, k=3),
@@ -544,6 +728,26 @@ async def main_async() -> None:
             ) / len(clarification_applied_details)
             if clarification_applied_details else 0.0
         ),
+        "clarification_multi_target_question_rate": (
+            clarification_cases_with_multi_target_question / len(clarification_needed_details)
+            if clarification_needed_details else 0.0
+        ),
+        "average_target_conditions_per_clarification_question": (
+            clarification_total_targets / clarification_total_questions
+            if clarification_total_questions else 0.0
+        ),
+        "clarification_utility_rate": (
+            clarification_improved_count / len(clarification_applied_details)
+            if clarification_applied_details else 0.0
+        ),
+        "clarification_changed_top_1_rate": (
+            clarification_changed_top_1_count / len(clarification_applied_details)
+            if clarification_applied_details else 0.0
+        ),
+        "low_information_clarification_rate": (
+            low_information_clarification_count / len(clarification_applied_details)
+            if clarification_applied_details else 0.0
+        ),
         "primary_source_distribution": source_distribution,
         "therapy_presence_rate": (
             sum(int(item["therapy_present"]) for item in details) / total if total else 0.0
@@ -565,6 +769,8 @@ async def main_async() -> None:
             "gemini_key_present": bool(args.gemini_api_key),
             "supported_label_space_size": len(supported_labels),
         },
+        "artifact_metadata": artifact_metadata,
+        "ambiguity_group_metrics": summarize_by_ambiguity_group(details),
         "outputs": {
             "predictions_csv": str(output_paths["predictions_csv"]),
             "classification_report_csv": str(output_paths["classification_report_csv"]),
@@ -583,6 +789,9 @@ async def main_async() -> None:
         [
             {
                 "case_id": item["case_id"],
+                "ambiguity_group": item.get("ambiguity_group", ""),
+                "language": item.get("language", ""),
+                "difficulty": item.get("difficulty", ""),
                 "mode": item["mode"],
                 "expected_condition": item["primary_expected_condition"],
                 "top_1_prediction": item["top_1_prediction"],
@@ -592,15 +801,23 @@ async def main_async() -> None:
                 "diagnosis_hit": item["diagnosis_hit"],
                 "clarification_needed": item["clarification_needed"],
                 "clarification_applied": item["clarification_applied"],
+                "clarification_multi_target_question_count": item["clarification_multi_target_question_count"],
+                "clarification_avg_targets_per_question": round(item["clarification_avg_targets_per_question"], 3),
                 "clarification_top_1_prediction": item["clarification_top_1_prediction"],
                 "clarification_top_3_predictions": " | ".join(item["clarification_top_3_predictions"]),
                 "clarification_top_1_correct": item["clarification_top_1_correct"],
                 "clarification_top_3_correct": item["clarification_top_3_correct"],
+                "clarification_improved_top_1": (
+                    (not item["top_1_correct"]) and item["clarification_top_1_correct"]
+                ),
             }
             for item in details
         ],
         [
             "case_id",
+            "ambiguity_group",
+            "language",
+            "difficulty",
             "mode",
             "expected_condition",
             "top_1_prediction",
@@ -610,10 +827,13 @@ async def main_async() -> None:
             "diagnosis_hit",
             "clarification_needed",
             "clarification_applied",
+            "clarification_multi_target_question_count",
+            "clarification_avg_targets_per_question",
             "clarification_top_1_prediction",
             "clarification_top_3_predictions",
             "clarification_top_1_correct",
             "clarification_top_3_correct",
+            "clarification_improved_top_1",
         ],
     )
     write_rows_csv(
@@ -628,6 +848,7 @@ async def main_async() -> None:
     )
 
     print(json.dumps(summary, indent=2, ensure_ascii=False))
+    return summary
 
 
 def main() -> None:
