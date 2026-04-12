@@ -28,7 +28,7 @@ test("app smoke render shows user mode by default and can switch to workbench", 
   render(<App />);
 
   expect(screen.getByText("GP Medical Report Analysis")).toBeTruthy();
-  expect(screen.getByText(/Guided medical analysis/i)).toBeTruthy();
+  expect(screen.getByText(/One conversation for diagnosis/i)).toBeTruthy();
   expect(screen.getByRole("tab", { name: "User interface" })).toBeTruthy();
 
   fireEvent.click(screen.getByRole("tab", { name: "Dev workbench" }));

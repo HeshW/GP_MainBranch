@@ -1,8 +1,22 @@
-import { useMemo, useState } from "react";
-import { ChatInterface } from "@/features/chat";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { postChat, postChatStream } from "@/shared/api";
 import { AnalysisResponse } from "@/shared/types";
 
-type InputMode = "symptoms" | "labs" | "image";
+type ComposerAction = "auto" | "symptoms" | "labs" | "image" | "chat";
+
+type TimelineItem = {
+  id: string;
+  role: "user" | "assistant";
+  kind: "text" | "analysis" | "error";
+  content?: string;
+  payload?: AnalysisResponse;
+};
+
+type ClarificationContext = {
+  report: Record<string, unknown>;
+  diagnosis: Record<string, unknown> | undefined;
+  questions: string[];
+};
 
 interface UserInterfaceViewProps {
   loading: boolean;
@@ -23,6 +37,26 @@ const DEFAULT_LABS_JSON = `{
   "hemoglobin": 11.2
 }`;
 
+function createSessionId() {
+  return `session-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createMessageId(prefix: string) {
+  return `${prefix}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function summarizeAnalysis(result: AnalysisResponse): string {
+  const diagnosis = result.diagnosis?.final_diagnosis?.diagnosis ?? "No final diagnosis";
+  const confidence = result.diagnosis?.final_diagnosis?.confidence;
+  const confidenceText = confidence === undefined ? "n/a" : String(confidence);
+  return `Latest analysis completed. Likely condition: ${diagnosis}. Confidence: ${confidenceText}.`;
+}
+
+function symptomHeuristic(text: string): boolean {
+  const lowered = text.toLowerCase();
+  return /pain|fever|cough|fatigue|dizziness|thirst|nausea|vomit|headache|chest|breath|حمى|الم|وجع|كحة|ضيق|دوخة|غثيان/.test(lowered);
+}
+
 export function UserInterfaceView({
   loading,
   result,
@@ -32,309 +66,464 @@ export function UserInterfaceView({
   runSymptoms,
   runClarification,
 }: UserInterfaceViewProps) {
-  const [inputMode, setInputMode] = useState<InputMode>("symptoms");
-  const [symptomText, setSymptomText] = useState(
-    "Fatigue and increased thirst for two weeks.",
-  );
+  const [sessionId] = useState(createSessionId);
+  const [timeline, setTimeline] = useState<TimelineItem[]>([
+    {
+      id: createMessageId("assistant"),
+      role: "assistant",
+      kind: "text",
+      content:
+        "Write your symptoms to start. You can also attach labs JSON or an image before sending, then continue asking follow-up questions in the same chat.",
+    },
+  ]);
+  const [composerText, setComposerText] = useState("");
+  const [composerAction, setComposerAction] = useState<ComposerAction>("auto");
   const [useParser, setUseParser] = useState(true);
   const [labsJson, setLabsJson] = useState(DEFAULT_LABS_JSON);
-  const [symptomsExtra, setSymptomsExtra] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [clarificationDraft, setClarificationDraft] = useState("");
+  const [streamingReply, setStreamingReply] = useState(false);
+  const [clarificationContext, setClarificationContext] = useState<ClarificationContext | null>(null);
+  const timelineEndRef = useRef<HTMLDivElement | null>(null);
+  const lastResultRef = useRef<AnalysisResponse | null>(null);
+  const lastErrorRef = useRef<string | null>(null);
 
   const finalDiagnosis = result?.diagnosis?.final_diagnosis;
-  const summaryText = result?.diagnosis?.summary;
-  const geminiResponse = result?.diagnosis?.gemini_response;
-  const geminiMode = result?.diagnosis?.gemini_response_metadata?.mode;
-  const therapyPlan = result?.therapy?.therapy_plan;
-  const safetyReasons = result?.diagnosis?.safety?.reasons ?? [];
-  const clarification = result?.diagnosis?.clarification;
-  const reportPayload = result?.report as Record<string, unknown> | undefined;
-  const diagnosisPayload = result?.diagnosis as Record<string, unknown> | undefined;
 
-  const clarificationAnswers = clarificationDraft
-    .split("\n")
-    .map((item) => item.trim())
-    .filter(Boolean);
+  useEffect(() => {
+    if (timelineEndRef.current && typeof timelineEndRef.current.scrollIntoView === "function") {
+      timelineEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }, [timeline]);
 
-  const submitDisabled = useMemo(() => {
-    if (loading) return true;
-    if (inputMode === "image") {
+  useEffect(() => {
+    if (!result || result === lastResultRef.current) {
+      return;
+    }
+
+    lastResultRef.current = result;
+    setTimeline((current) => [
+      ...current,
+      {
+        id: createMessageId("assistant"),
+        role: "assistant",
+        kind: "analysis",
+        payload: result,
+        content: summarizeAnalysis(result),
+      },
+    ]);
+
+    const clarification = result.diagnosis?.clarification;
+    if (clarification?.needed && result.report) {
+      setClarificationContext({
+        report: result.report as Record<string, unknown>,
+        diagnosis: result.diagnosis as Record<string, unknown> | undefined,
+        questions: (clarification.questions ?? [])
+          .map((item) => item.question)
+          .filter((item) => item.trim().length > 0),
+      });
+    } else {
+      setClarificationContext(null);
+    }
+  }, [result]);
+
+  useEffect(() => {
+    if (!error || error === lastErrorRef.current) {
+      return;
+    }
+
+    lastErrorRef.current = error;
+    setTimeline((current) => [
+      ...current,
+      {
+        id: createMessageId("assistant"),
+        role: "assistant",
+        kind: "error",
+        content: error,
+      },
+    ]);
+  }, [error]);
+
+  const sendDisabled = useMemo(() => {
+    if (loading || streamingReply) {
+      return true;
+    }
+    if (composerAction === "image") {
       return !imageFile;
     }
-    if (inputMode === "labs") {
+    if (composerAction === "labs") {
       return !labsJson.trim();
     }
-    return !symptomText.trim();
-  }, [imageFile, inputMode, labsJson, loading, symptomText]);
+    return !composerText.trim();
+  }, [composerAction, composerText, imageFile, labsJson, loading, streamingReply]);
 
-  const clarificationDisabled = useMemo(
-    () => loading || !clarification?.needed || !reportPayload || clarificationAnswers.length === 0,
-    [clarification?.needed, clarificationAnswers.length, loading, reportPayload],
-  );
+  const sendLabel = loading || streamingReply ? "Sending..." : "Send";
 
-  const submitLabel = loading ? "Analyzing..." : "Analyze now";
-
-  const handleSubmit = async () => {
-    if (inputMode === "image") {
-      await runImage(imageFile);
-      return;
-    }
-
-    if (inputMode === "labs") {
-      await runLabs(labsJson, symptomsExtra);
-      return;
-    }
-
-    await runSymptoms(symptomText, useParser);
+  const addTimelineText = (role: "user" | "assistant", content: string, kind: TimelineItem["kind"] = "text") => {
+    setTimeline((current) => [
+      ...current,
+      {
+        id: createMessageId(role),
+        role,
+        kind,
+        content,
+      },
+    ]);
   };
 
-  const handleClarificationSubmit = async () => {
-    if (!reportPayload || clarificationAnswers.length === 0) {
+  const appendChunkToLastAssistant = (chunk: string) => {
+    setTimeline((current) => {
+      const next = [...current];
+      for (let index = next.length - 1; index >= 0; index -= 1) {
+        if (next[index].role === "assistant" && next[index].kind === "text") {
+          next[index] = {
+            ...next[index],
+            content: `${next[index].content ?? ""}${chunk}`,
+          };
+          return next;
+        }
+      }
+      return [
+        ...next,
+        {
+          id: createMessageId("assistant"),
+          role: "assistant",
+          kind: "text",
+          content: chunk,
+        },
+      ];
+    });
+  };
+
+  const runChatTurn = async (text: string) => {
+    setStreamingReply(true);
+    addTimelineText("assistant", "");
+    let streamed = false;
+
+    try {
+      const fallbackText = await postChatStream(
+        { session_id: sessionId, message: text },
+        (chunk) => {
+          streamed = true;
+          appendChunkToLastAssistant(chunk);
+        },
+      );
+
+      if (!streamed && !fallbackText) {
+        const fallback = await postChat({ session_id: sessionId, message: text });
+        setTimeline((current) => {
+          const next = [...current];
+          for (let index = next.length - 1; index >= 0; index -= 1) {
+            if (next[index].role === "assistant" && next[index].kind === "text") {
+              next[index] = { ...next[index], content: fallback.response };
+              return next;
+            }
+          }
+          return current;
+        });
+      }
+    } catch {
+      if (!streamed) {
+        try {
+          const fallback = await postChat({ session_id: sessionId, message: text });
+          setTimeline((current) => {
+            const next = [...current];
+            for (let index = next.length - 1; index >= 0; index -= 1) {
+              if (next[index].role === "assistant" && next[index].kind === "text") {
+                next[index] = { ...next[index], content: fallback.response };
+                return next;
+              }
+            }
+            return current;
+          });
+        } catch (chatError) {
+          const content = chatError instanceof Error ? chatError.message : String(chatError);
+          setTimeline((current) => [
+            ...current,
+            {
+              id: createMessageId("assistant"),
+              role: "assistant",
+              kind: "error",
+              content: `Chat failed: ${content}`,
+            },
+          ]);
+        }
+      }
+    } finally {
+      setStreamingReply(false);
+    }
+  };
+
+  const routeAutoAction = (text: string): ComposerAction => {
+    if (clarificationContext) {
+      return "symptoms";
+    }
+    if (imageFile) {
+      return "image";
+    }
+    if (composerAction === "labs") {
+      return "labs";
+    }
+    const hasPriorAnalysis = timeline.some((item) => item.kind === "analysis");
+    if (!hasPriorAnalysis || symptomHeuristic(text)) {
+      return "symptoms";
+    }
+    return "chat";
+  };
+
+  const handleSend = async () => {
+    const trimmed = composerText.trim();
+    const action = composerAction === "auto" ? routeAutoAction(trimmed) : composerAction;
+
+    if (action !== "image" && action !== "labs" && !trimmed) {
       return;
     }
 
-    await runClarification(reportPayload, diagnosisPayload, clarificationAnswers);
+    let userSummary = trimmed;
+    if (!userSummary && action === "image" && imageFile) {
+      userSummary = `Uploaded image: ${imageFile.name}`;
+    }
+    if (!userSummary && action === "labs") {
+      userSummary = "Submitted lab values.";
+    }
+
+    addTimelineText("user", userSummary || "Submitted");
+    setComposerText("");
+
+    if (clarificationContext && trimmed && action !== "chat") {
+      const answers = trimmed
+        .split("\n")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      await runClarification(
+        clarificationContext.report,
+        clarificationContext.diagnosis,
+        answers.length ? answers : [trimmed],
+      );
+      setComposerAction("auto");
+      return;
+    }
+
+    if (action === "image") {
+      await runImage(imageFile);
+      setImageFile(null);
+      setComposerAction("auto");
+      return;
+    }
+
+    if (action === "labs") {
+      await runLabs(labsJson, trimmed);
+      setComposerAction("auto");
+      return;
+    }
+
+    if (action === "symptoms") {
+      await runSymptoms(trimmed, useParser);
+      setComposerAction("auto");
+      return;
+    }
+
+    await runChatTurn(trimmed);
+    setComposerAction("auto");
+  };
+
+  const renderAnalysisCard = (analysis: AnalysisResponse) => {
+    const diagnosis = analysis.diagnosis?.final_diagnosis;
+    const summary = analysis.diagnosis?.summary;
+    const gemini = analysis.diagnosis?.gemini_response;
+    const therapy = analysis.therapy?.therapy_plan;
+    const safetyReasons = analysis.diagnosis?.safety?.reasons ?? [];
+    const clarification = analysis.diagnosis?.clarification;
+
+    return (
+      <article className="chat-first-card">
+        <header className="chat-first-card__header">
+          <p className="chat-first-card__title">Diagnostic update</p>
+          <p className="chat-first-card__meta">
+            {diagnosis?.diagnosis ?? "No final diagnosis"}
+            {diagnosis?.confidence !== undefined ? ` • confidence ${String(diagnosis.confidence)}` : ""}
+          </p>
+        </header>
+
+        {summary && <p className="chat-first-card__body">{summary}</p>}
+        {gemini && <p className="chat-first-card__body">{gemini}</p>}
+        {therapy && <p className="chat-first-card__body">Therapy: {therapy}</p>}
+
+        {!!safetyReasons.length && (
+          <ul className="flat-list">
+            {safetyReasons.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        )}
+
+        {clarification?.needed && (
+          <div className="chat-first-card__clarify">
+            <p>Follow-up questions:</p>
+            <ul className="flat-list">
+              {(clarification.questions ?? []).map((item) => (
+                <li key={item.question}>{item.question}</li>
+              ))}
+            </ul>
+            <p className="chat-first-card__hint">Reply in the same composer to continue clarification.</p>
+          </div>
+        )}
+      </article>
+    );
   };
 
   return (
-    <section className="user-experience">
-      <section className="user-hero">
+    <section className="chat-first" dir="rtl">
+      <header className="chat-first__hero">
         <div>
-          <p className="user-hero__eyebrow">User Interface</p>
-          <h2 className="user-hero__title">
-            Guided medical analysis with a simplified, chat-first flow
-          </h2>
-          <p className="user-hero__subtitle">
-            Enter symptoms, paste lab values, or upload a report image. This mode is designed for
-            non-technical use and focuses on concise, actionable outputs.
+          <p className="chat-first__eyebrow">User Interface</p>
+          <h2 className="chat-first__title">One conversation for diagnosis, OCR, and follow-up</h2>
+          <p className="chat-first__subtitle">
+            Type symptoms and send immediately, or attach labs/image first. Follow-up questions are
+            answered in the same chat box.
           </p>
         </div>
-
-        <div className="user-hero__status">
-          <span className="user-status-pill">
-            {result ? "Latest analysis is ready" : "Waiting for your first analysis"}
-          </span>
-          {finalDiagnosis?.diagnosis && (
-            <p className="user-hero__diagnosis">
-              Current likely diagnosis: <strong>{finalDiagnosis.diagnosis}</strong>
-            </p>
-          )}
+        <div className="chat-first__status">
+          <span>{finalDiagnosis?.diagnosis ?? "No diagnosis yet"}</span>
         </div>
+      </header>
+
+      <section className="chat-first__history" aria-live="polite">
+        {timeline.map((item) => (
+          <article
+            key={item.id}
+            className={`chat-first-message chat-first-message--${item.role} chat-first-message--${item.kind}`}
+          >
+            {item.kind === "analysis" && item.payload ? (
+              renderAnalysisCard(item.payload)
+            ) : (
+              <p>{item.content}</p>
+            )}
+          </article>
+        ))}
+        <div ref={timelineEndRef} />
       </section>
 
-      <div className="user-layout">
-        <section className="user-panel">
-          <h3>1. Choose what you want to analyze</h3>
+      {clarificationContext?.questions.length ? (
+        <section className="chat-first__clarification">
+          <p>Current follow-up questions:</p>
+          <ul className="flat-list">
+            {clarificationContext.questions.map((question) => (
+              <li key={question}>{question}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
-          <div className="user-mode-picker" role="tablist" aria-label="Input mode">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={inputMode === "symptoms"}
-              className={inputMode === "symptoms" ? "is-active" : ""}
-              onClick={() => setInputMode("symptoms")}
-            >
-              Symptoms text
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={inputMode === "labs"}
-              className={inputMode === "labs" ? "is-active" : ""}
-              onClick={() => setInputMode("labs")}
-            >
-              Lab JSON
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={inputMode === "image"}
-              className={inputMode === "image" ? "is-active" : ""}
-              onClick={() => setInputMode("image")}
-            >
-              Report image
-            </button>
-          </div>
-
-          {inputMode === "symptoms" && (
-            <div className="field">
-              <label htmlFor="user-symptom-text">Describe symptoms in plain language</label>
-              <textarea
-                id="user-symptom-text"
-                value={symptomText}
-                onChange={(event) => setSymptomText(event.target.value)}
-                placeholder="Example: Fever, headache, and sore throat for 3 days."
-              />
-              <label className="user-inline-check">
-                <input
-                  type="checkbox"
-                  checked={useParser}
-                  onChange={(event) => setUseParser(event.target.checked)}
-                />
-                Use advanced symptom parser
-              </label>
-            </div>
-          )}
-
-          {inputMode === "labs" && (
-            <>
-              <div className="field">
-                <label htmlFor="user-labs-json">Paste lab values (JSON)</label>
-                <textarea
-                  id="user-labs-json"
-                  value={labsJson}
-                  onChange={(event) => setLabsJson(event.target.value)}
-                  spellCheck={false}
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="user-labs-symptoms">Optional symptoms</label>
-                <input
-                  id="user-labs-symptoms"
-                  type="text"
-                  value={symptomsExtra}
-                  onChange={(event) => setSymptomsExtra(event.target.value)}
-                  placeholder="Example: fatigue and thirst"
-                />
-              </div>
-            </>
-          )}
-
-          {inputMode === "image" && (
-            <div className="field">
-              <label className="dropzone user-dropzone">
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,image/bmp"
-                  onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
-                />
-                {imageFile ? (
-                  <span>
-                    Selected image: <strong>{imageFile.name}</strong>
-                  </span>
-                ) : (
-                  <span>Click to upload a lab report image</span>
-                )}
-              </label>
-            </div>
-          )}
-
+      <section className="chat-first__composer">
+        <div className="chat-first-actions" role="tablist" aria-label="Send mode">
           <button
             type="button"
-            className="btn user-primary-btn"
-            disabled={submitDisabled}
-            onClick={() => void handleSubmit()}
+            role="tab"
+            aria-selected={composerAction === "auto"}
+            className={composerAction === "auto" ? "is-active" : ""}
+            onClick={() => setComposerAction("auto")}
           >
-            {submitLabel}
+            Auto
           </button>
-        </section>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={composerAction === "symptoms"}
+            className={composerAction === "symptoms" ? "is-active" : ""}
+            onClick={() => setComposerAction("symptoms")}
+          >
+            Symptoms
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={composerAction === "labs"}
+            className={composerAction === "labs" ? "is-active" : ""}
+            onClick={() => setComposerAction("labs")}
+          >
+            Labs JSON
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={composerAction === "image"}
+            className={composerAction === "image" ? "is-active" : ""}
+            onClick={() => setComposerAction("image")}
+          >
+            Upload image
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={composerAction === "chat"}
+            className={composerAction === "chat" ? "is-active" : ""}
+            onClick={() => setComposerAction("chat")}
+          >
+            Ask question
+          </button>
+        </div>
 
-        <section className="user-panel">
-          <h3>2. Review your simplified summary</h3>
+        {(composerAction === "symptoms" || composerAction === "auto") && (
+          <label className="chat-first__check">
+            <input
+              type="checkbox"
+              checked={useParser}
+              onChange={(event) => setUseParser(event.target.checked)}
+            />
+            Use advanced symptom parser
+          </label>
+        )}
 
-          {error && <p className="err">{error}</p>}
+        {composerAction === "labs" && (
+          <div className="chat-first-attachment">
+            <label htmlFor="chat-first-labs">Lab JSON attachment</label>
+            <textarea
+              id="chat-first-labs"
+              value={labsJson}
+              onChange={(event) => setLabsJson(event.target.value)}
+              spellCheck={false}
+            />
+          </div>
+        )}
 
-          {!result && !error && (
-            <p className="user-placeholder">
-              Run an analysis to receive a diagnosis summary, safety notes, and therapy guidance.
-            </p>
-          )}
+        {composerAction === "image" && (
+          <label className="dropzone chat-first-dropzone">
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/bmp"
+              onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
+            />
+            {imageFile ? `Attached: ${imageFile.name}` : "Click to attach an image for OCR"}
+          </label>
+        )}
 
-          {result && !error && (
-            <div className="user-summary-stack">
-              <article className="user-summary-card">
-                <p className="user-summary-label">Likely condition</p>
-                <p className="user-summary-value">
-                  {finalDiagnosis?.diagnosis ?? "No final diagnosis was produced."}
-                </p>
-                {finalDiagnosis?.confidence !== undefined && (
-                  <p className="user-summary-meta">Confidence: {String(finalDiagnosis.confidence)}</p>
-                )}
-              </article>
-
-              {summaryText && (
-                <article className="user-summary-card">
-                  <p className="user-summary-label">Clinical summary</p>
-                  <p>{summaryText}</p>
-                </article>
-              )}
-
-              <article className="user-summary-card">
-                <p className="user-summary-label">Gemini generated response</p>
-                {geminiResponse ? (
-                  <p className="user-gemini-response">{geminiResponse}</p>
-                ) : (
-                  <p>No Gemini narrative was generated for this run.</p>
-                )}
-                {geminiMode && <p className="user-summary-meta">Mode: {geminiMode}</p>}
-              </article>
-
-              {therapyPlan && (
-                <article className="user-summary-card">
-                  <p className="user-summary-label">Therapy guidance</p>
-                  <p>{therapyPlan}</p>
-                </article>
-              )}
-
-              {!!safetyReasons.length && (
-                <article className="user-summary-card">
-                  <p className="user-summary-label">Safety notes</p>
-                  <ul className="flat-list">
-                    {safetyReasons.map((reason) => (
-                      <li key={reason}>{reason}</li>
-                    ))}
-                  </ul>
-                </article>
-              )}
-
-              {clarification?.needed && (
-                <article className="user-summary-card">
-                  <p className="user-summary-label">Follow-up questions recommended</p>
-                  {clarification.questions?.length ? (
-                    <ul className="flat-list">
-                      {clarification.questions.map((item) => (
-                        <li key={item.question}>{item.question}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p>Additional clarification is recommended by the engine.</p>
-                  )}
-
-                  <div className="field user-follow-up-field">
-                    <label htmlFor="user-clarification-answers">
-                      Your follow-up answers (one answer per line)
-                    </label>
-                    <textarea
-                      id="user-clarification-answers"
-                      rows={Math.max(4, (clarification.questions?.length ?? 0) + 1)}
-                      value={clarificationDraft}
-                      onChange={(event) => setClarificationDraft(event.target.value)}
-                      placeholder="Example:\nStarted gradually\nBreathing trouble is most prominent"
-                    />
-                  </div>
-
-                  <button
-                    type="button"
-                    className="btn user-secondary-btn"
-                    disabled={clarificationDisabled}
-                    onClick={() => void handleClarificationSubmit()}
-                  >
-                    Re-run with follow-up answers
-                  </button>
-                </article>
-              )}
-            </div>
-          )}
-        </section>
-      </div>
-
-      <section className="user-panel user-panel--chat">
-        <h3>3. Continue with medical Q&A</h3>
-        <p className="user-chat-note">
-          Use the chat to ask for explanation of findings, risks, and next steps.
-        </p>
-        <ChatInterface />
+        <div className="chat-first__input-row">
+          <input
+            type="text"
+            value={composerText}
+            onChange={(event) => setComposerText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void handleSend();
+              }
+            }}
+            placeholder={
+              clarificationContext
+                ? "Answer the follow-up questions here"
+                : "Type symptoms or ask a follow-up question"
+            }
+            disabled={loading || streamingReply}
+          />
+          <button
+            type="button"
+            className="btn"
+            disabled={sendDisabled}
+            onClick={() => void handleSend()}
+          >
+            {sendLabel}
+          </button>
+        </div>
       </section>
     </section>
   );
