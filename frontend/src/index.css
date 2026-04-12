@@ -624,6 +624,18 @@ pre {
   background: linear-gradient(140deg, #5da2ff 0%, #84c7ff 100%);
 }
 
+.user-secondary-btn {
+  margin-top: 0.55rem;
+  width: 100%;
+  background: rgba(22, 49, 101, 0.92);
+  border: 1px solid rgba(138, 183, 252, 0.52);
+  color: #dcecff;
+}
+
+.user-secondary-btn:hover:not(:disabled) {
+  background: rgba(35, 73, 143, 0.96);
+}
+
 .user-dropzone {
   color: #bdd6ff;
   border-color: rgba(150, 191, 255, 0.45);
@@ -671,6 +683,14 @@ pre {
 .user-summary-meta {
   margin: 0.45rem 0 0;
   color: #abc8ef;
+}
+
+.user-gemini-response {
+  white-space: pre-wrap;
+}
+
+.user-follow-up-field {
+  margin-top: 0.9rem;
 }
 
 .user-panel--chat .chat-card {

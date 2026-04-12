@@ -11,6 +11,11 @@ interface UserInterfaceViewProps {
   runLabs: (labsJson: string, symptomsExtra: string) => Promise<void>;
   runImage: (file: File | null) => Promise<void>;
   runSymptoms: (symptomText: string, useParser: boolean) => Promise<void>;
+  runClarification: (
+    report: Record<string, unknown>,
+    diagnosis: Record<string, unknown> | undefined,
+    answers: string[],
+  ) => Promise<void>;
 }
 
 const DEFAULT_LABS_JSON = `{
@@ -25,6 +30,7 @@ export function UserInterfaceView({
   runLabs,
   runImage,
   runSymptoms,
+  runClarification,
 }: UserInterfaceViewProps) {
   const [inputMode, setInputMode] = useState<InputMode>("symptoms");
   const [symptomText, setSymptomText] = useState(
@@ -34,12 +40,22 @@ export function UserInterfaceView({
   const [labsJson, setLabsJson] = useState(DEFAULT_LABS_JSON);
   const [symptomsExtra, setSymptomsExtra] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [clarificationDraft, setClarificationDraft] = useState("");
 
   const finalDiagnosis = result?.diagnosis?.final_diagnosis;
   const summaryText = result?.diagnosis?.summary;
+  const geminiResponse = result?.diagnosis?.gemini_response;
+  const geminiMode = result?.diagnosis?.gemini_response_metadata?.mode;
   const therapyPlan = result?.therapy?.therapy_plan;
   const safetyReasons = result?.diagnosis?.safety?.reasons ?? [];
   const clarification = result?.diagnosis?.clarification;
+  const reportPayload = result?.report as Record<string, unknown> | undefined;
+  const diagnosisPayload = result?.diagnosis as Record<string, unknown> | undefined;
+
+  const clarificationAnswers = clarificationDraft
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
 
   const submitDisabled = useMemo(() => {
     if (loading) return true;
@@ -51,6 +67,11 @@ export function UserInterfaceView({
     }
     return !symptomText.trim();
   }, [imageFile, inputMode, labsJson, loading, symptomText]);
+
+  const clarificationDisabled = useMemo(
+    () => loading || !clarification?.needed || !reportPayload || clarificationAnswers.length === 0,
+    [clarification?.needed, clarificationAnswers.length, loading, reportPayload],
+  );
 
   const submitLabel = loading ? "Analyzing..." : "Analyze now";
 
@@ -66,6 +87,14 @@ export function UserInterfaceView({
     }
 
     await runSymptoms(symptomText, useParser);
+  };
+
+  const handleClarificationSubmit = async () => {
+    if (!reportPayload || clarificationAnswers.length === 0) {
+      return;
+    }
+
+    await runClarification(reportPayload, diagnosisPayload, clarificationAnswers);
   };
 
   return (
@@ -231,6 +260,16 @@ export function UserInterfaceView({
                 </article>
               )}
 
+              <article className="user-summary-card">
+                <p className="user-summary-label">Gemini generated response</p>
+                {geminiResponse ? (
+                  <p className="user-gemini-response">{geminiResponse}</p>
+                ) : (
+                  <p>No Gemini narrative was generated for this run.</p>
+                )}
+                {geminiMode && <p className="user-summary-meta">Mode: {geminiMode}</p>}
+              </article>
+
               {therapyPlan && (
                 <article className="user-summary-card">
                   <p className="user-summary-label">Therapy guidance</p>
@@ -261,6 +300,28 @@ export function UserInterfaceView({
                   ) : (
                     <p>Additional clarification is recommended by the engine.</p>
                   )}
+
+                  <div className="field user-follow-up-field">
+                    <label htmlFor="user-clarification-answers">
+                      Your follow-up answers (one answer per line)
+                    </label>
+                    <textarea
+                      id="user-clarification-answers"
+                      rows={Math.max(4, (clarification.questions?.length ?? 0) + 1)}
+                      value={clarificationDraft}
+                      onChange={(event) => setClarificationDraft(event.target.value)}
+                      placeholder="Example:\nStarted gradually\nBreathing trouble is most prominent"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn user-secondary-btn"
+                    disabled={clarificationDisabled}
+                    onClick={() => void handleClarificationSubmit()}
+                  >
+                    Re-run with follow-up answers
+                  </button>
                 </article>
               )}
             </div>

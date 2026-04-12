@@ -41,6 +41,7 @@ export default function App() {
             runLabs={runLabs}
             runImage={runImage}
             runSymptoms={runSymptoms}
+            runClarification={runClarification}
           />
         )}
       </main>
