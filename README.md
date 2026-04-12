@@ -28,6 +28,22 @@ frontend/src/shared/            Shared API client, layout, hooks, and types
 3. Start UI: `cd frontend && npm install && npm run dev`.
 4. Open `http://127.0.0.1:5173`.
 
+### Interface modes
+
+The frontend now has two separate modes:
+
+1. User Interface (default)
+	- Dark-blue, simplified, chat-first workflow for non-technical usage.
+	- Choose one input path (Symptoms text, Lab JSON, or Report image), run analysis, then review a simplified summary.
+	- Continue with the embedded medical chat for follow-up explanations.
+
+2. Dev Workbench
+	- Toggle from header: click `Dev workbench`.
+	- Keeps the original tabbed diagnostic interface (`Manual labs`, `Report image`, `Symptoms text`).
+	- Includes full result diagnostics (fusion details, clarification controls, retrieved cases, raw JSON).
+
+To return to the simplified experience, click `User interface` in the header toggle.
+
 Notes:
 - Frontend dev server is pinned to host `127.0.0.1` and port `5173` in `frontend/vite.config.ts`.
 - If port `5173` is occupied, Vite will fail fast (strict port) instead of silently switching ports.

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import App from "./App";
@@ -24,10 +24,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("app smoke render shows core UI and fetches API meta", async () => {
+test("app smoke render shows user mode by default and can switch to workbench", async () => {
   render(<App />);
 
   expect(screen.getByText("GP Medical Report Analysis")).toBeTruthy();
+  expect(screen.getByText(/Guided medical analysis/i)).toBeTruthy();
+  expect(screen.getByRole("tab", { name: "User interface" })).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("tab", { name: "Dev workbench" }));
+
   expect(screen.getByRole("button", { name: "Manual labs" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Report image" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Symptoms text" })).toBeTruthy();

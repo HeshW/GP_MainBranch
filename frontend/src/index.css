@@ -57,6 +57,12 @@ pre {
   box-shadow: var(--shadow);
 }
 
+.app-shell--user .app-header {
+  background:
+    radial-gradient(circle at 85% 12%, rgba(71, 154, 255, 0.5), transparent 42%),
+    linear-gradient(140deg, #020817 0%, #0c1f4e 54%, #123275 100%);
+}
+
 .app-header__inner {
   max-width: 1100px;
   margin: 0 auto;
@@ -105,12 +111,57 @@ pre {
   border-color: transparent;
 }
 
+.header-controls {
+  display: grid;
+  justify-items: end;
+  gap: 0.7rem;
+}
+
+.mode-toggle {
+  display: inline-flex;
+  gap: 0.35rem;
+  background: rgba(9, 30, 68, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  padding: 0.25rem;
+  border-radius: 999px;
+}
+
+.mode-toggle button {
+  font-family: var(--font);
+  border: none;
+  border-radius: 999px;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.77rem;
+  letter-spacing: 0.01em;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.82);
+  background: transparent;
+  cursor: pointer;
+}
+
+.mode-toggle button.is-active {
+  background: #ffffff;
+  color: #0f2b63;
+}
+
 .app-main {
   flex: 1;
   max-width: 1100px;
   margin: 0 auto;
   padding: 1.5rem;
   width: 100%;
+}
+
+.app-shell--user {
+  background:
+    radial-gradient(circle at 8% 10%, rgba(68, 144, 242, 0.23), transparent 38%),
+    radial-gradient(circle at 90% 0%, rgba(31, 95, 204, 0.28), transparent 42%),
+    linear-gradient(180deg, #020817 0%, #07112a 100%);
+  color: #d6e6ff;
+}
+
+.app-shell--user .app-main {
+  max-width: 1220px;
 }
 
 .tabs {
@@ -428,9 +479,259 @@ pre {
   margin: 0 auto;
 }
 
+.app-shell--user .footer-note {
+  color: #acc8f3;
+}
+
+.user-experience {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.user-hero {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1.45fr 1fr;
+  padding: 1.25rem;
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, rgba(19, 56, 132, 0.84), rgba(12, 31, 72, 0.92)),
+    radial-gradient(circle at 100% 0%, rgba(88, 162, 255, 0.36), transparent 40%);
+  border: 1px solid rgba(137, 179, 255, 0.36);
+  box-shadow: 0 30px 48px rgba(2, 8, 25, 0.38);
+}
+
+.user-hero__eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.11em;
+  font-weight: 700;
+  color: #a8c5ff;
+}
+
+.user-hero__title {
+  margin: 0.45rem 0;
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+.user-hero__subtitle {
+  margin: 0;
+  color: #d8e8ff;
+  max-width: 52ch;
+}
+
+.user-hero__status {
+  border-radius: 12px;
+  border: 1px solid rgba(156, 199, 255, 0.35);
+  background: rgba(4, 15, 39, 0.58);
+  padding: 0.95rem;
+  align-self: start;
+}
+
+.user-status-pill {
+  display: inline-flex;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 1px solid rgba(156, 205, 255, 0.4);
+  border-radius: 999px;
+  color: #bcd9ff;
+  padding: 0.35rem 0.75rem;
+}
+
+.user-hero__diagnosis {
+  margin: 0.75rem 0 0;
+  font-size: 0.9rem;
+  color: #dbeaff;
+}
+
+.user-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.user-panel {
+  border-radius: 14px;
+  border: 1px solid rgba(129, 177, 255, 0.3);
+  background: linear-gradient(160deg, rgba(9, 24, 57, 0.9), rgba(6, 18, 43, 0.9));
+  box-shadow: 0 24px 38px rgba(2, 8, 25, 0.3);
+  padding: 1.1rem;
+}
+
+.user-panel h3 {
+  margin-top: 0;
+}
+
+.user-panel .field label {
+  color: #c1d9ff;
+}
+
+.app-shell--user .field input[type="text"],
+.app-shell--user .field textarea,
+.app-shell--user .chat-composer input {
+  color: #f2f7ff;
+  background: rgba(4, 16, 40, 0.82);
+  border-color: rgba(113, 158, 231, 0.46);
+}
+
+.app-shell--user .field textarea::placeholder,
+.app-shell--user .field input::placeholder {
+  color: #93afd8;
+}
+
+.user-mode-picker {
+  display: flex;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.user-mode-picker button {
+  border: 1px solid rgba(141, 186, 255, 0.36);
+  background: rgba(8, 22, 55, 0.84);
+  color: #d4e8ff;
+  padding: 0.5rem 0.8rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.user-mode-picker button.is-active {
+  background: linear-gradient(140deg, #3f8cff 0%, #67b5ff 100%);
+  color: #081225;
+  border-color: transparent;
+}
+
+.user-inline-check {
+  margin-top: 0.8rem;
+  display: inline-flex;
+  gap: 0.55rem;
+  align-items: center;
+  color: #c6dbff;
+}
+
+.user-primary-btn {
+  margin-top: 0.55rem;
+  width: 100%;
+  background: linear-gradient(140deg, #3e8eff 0%, #68b5ff 100%);
+  color: #081225;
+}
+
+.user-primary-btn:hover:not(:disabled) {
+  background: linear-gradient(140deg, #5da2ff 0%, #84c7ff 100%);
+}
+
+.user-dropzone {
+  color: #bdd6ff;
+  border-color: rgba(150, 191, 255, 0.45);
+  background: rgba(4, 13, 35, 0.45);
+}
+
+.user-dropzone:hover,
+.user-dropzone:focus-within {
+  border-color: #77b7ff;
+  background: rgba(26, 63, 128, 0.3);
+}
+
+.user-placeholder {
+  margin: 0;
+  color: #a8c5ef;
+}
+
+.user-summary-stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.user-summary-card {
+  border-radius: 11px;
+  border: 1px solid rgba(126, 171, 240, 0.34);
+  background: rgba(4, 15, 39, 0.7);
+  padding: 0.8rem 0.85rem;
+}
+
+.user-summary-label {
+  margin: 0 0 0.4rem;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: #a9caff;
+}
+
+.user-summary-value {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #f4f8ff;
+}
+
+.user-summary-meta {
+  margin: 0.45rem 0 0;
+  color: #abc8ef;
+}
+
+.user-panel--chat .chat-card {
+  border-color: rgba(126, 172, 243, 0.35);
+  background: rgba(6, 18, 44, 0.68);
+}
+
+.user-chat-note {
+  margin-top: -0.35rem;
+  color: #acc9f2;
+}
+
+.app-shell--user .chat-history {
+  background: rgba(3, 12, 33, 0.72);
+  border-color: rgba(117, 166, 239, 0.35);
+}
+
+.app-shell--user .chat-empty,
+.app-shell--user .chat-status,
+.app-shell--user .chat-card__subtitle {
+  color: #9cbde7;
+}
+
+.app-shell--user .chat-bubble {
+  color: #eaf2ff;
+  border-color: rgba(120, 169, 240, 0.35);
+  box-shadow: none;
+}
+
+.app-shell--user .chat-bubble--user {
+  background: linear-gradient(135deg, rgba(49, 119, 215, 0.75), rgba(36, 84, 159, 0.72));
+}
+
+.app-shell--user .chat-bubble--model {
+  background: rgba(8, 24, 58, 0.85);
+}
+
 @media (max-width: 720px) {
+  .app-header__inner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .header-controls {
+    justify-items: stretch;
+  }
+
+  .mode-toggle {
+    width: fit-content;
+  }
+
   .app-main {
     padding: 1rem;
+  }
+
+  .user-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .user-layout {
+    grid-template-columns: 1fr;
   }
 
   .chat-composer {

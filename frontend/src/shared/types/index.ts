@@ -1,4 +1,5 @@
 export type AnalysisTab = "labs" | "image" | "symptoms";
+export type AppMode = "user" | "workbench";
 
 export interface MetaInfo {
   api_version: string;
