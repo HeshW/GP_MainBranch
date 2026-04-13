@@ -29,6 +29,14 @@ def _canonical_lab_name(name: str) -> str:
     lower = name.lower().strip()
     if lower in aliases:
         return aliases[lower]
+    # Fuzzy fallback: recover from OCR errors and misspellings in lab names.
+    try:
+        from manager.fuzzy_utils import fuzzy_match_lab_name
+        result = fuzzy_match_lab_name(lower, aliases)
+        if result is not None:
+            return result[0]
+    except ImportError:
+        pass
     return lower
 
 
