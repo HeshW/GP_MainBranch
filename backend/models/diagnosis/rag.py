@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import pickle
 import re
 from pathlib import Path
@@ -96,6 +97,8 @@ class MedicalCaseSearcher:
         "abdominal_pain": ("abdominal pain", "epigastric pain"),
         "vomiting": ("vomiting", "vomited"),
         "diarrhea": ("diarrhea",),
+        "hoarseness": ("hoarseness", "hoarse voice"),
+        "weight_loss": ("weight loss", "losing weight", "unexplained weight loss"),
     }
     _DISCRIMINATIVE_FEATURES = {
         "thirst",
@@ -110,7 +113,57 @@ class MedicalCaseSearcher:
         "abdominal_pain",
         "vomiting",
         "diarrhea",
+        "hoarseness",
+        "weight_loss",
     }
+    RERANK_WEIGHT_EMBEDDING = float(os.getenv("RAG_RERANK_WEIGHT_EMBEDDING", "0.50"))
+    RERANK_WEIGHT_SYMPTOM_OVERLAP = float(os.getenv("RAG_RERANK_WEIGHT_SYMPTOM_OVERLAP", "0.28"))
+    RERANK_WEIGHT_LEXICAL = float(os.getenv("RAG_RERANK_WEIGHT_LEXICAL", "0.18"))
+    RERANK_WEIGHT_FEATURE_ALIGNMENT = float(os.getenv("RAG_RERANK_WEIGHT_FEATURE_ALIGNMENT", "0.24"))
+    RERANK_PENALTY_MISMATCH = float(os.getenv("RAG_RERANK_PENALTY_MISMATCH", "0.23"))
+    RERANK_PENALTY_PATHOLOGY = float(os.getenv("RAG_RERANK_PENALTY_PATHOLOGY", "0.30"))
+    SEARCH_EXPANSION_MULTIPLIER = int(os.getenv("RAG_SEARCH_EXPANSION_MULTIPLIER", "100"))
+    SEARCH_EXPANSION_MIN = int(os.getenv("RAG_SEARCH_EXPANSION_MIN", "500"))
+
+    @staticmethod
+    def _normalize_label(value: str) -> str:
+        return " ".join(str(value or "").strip().lower().replace("-", " ").replace("_", " ").split())
+
+    @classmethod
+    def configure_rerank_weights(
+        cls,
+        *,
+        embedding: Optional[float] = None,
+        symptom_overlap: Optional[float] = None,
+        lexical: Optional[float] = None,
+        feature_alignment: Optional[float] = None,
+        mismatch_penalty: Optional[float] = None,
+        pathology_penalty: Optional[float] = None,
+    ) -> None:
+        if embedding is not None:
+            cls.RERANK_WEIGHT_EMBEDDING = float(embedding)
+        if symptom_overlap is not None:
+            cls.RERANK_WEIGHT_SYMPTOM_OVERLAP = float(symptom_overlap)
+        if lexical is not None:
+            cls.RERANK_WEIGHT_LEXICAL = float(lexical)
+        if feature_alignment is not None:
+            cls.RERANK_WEIGHT_FEATURE_ALIGNMENT = float(feature_alignment)
+        if mismatch_penalty is not None:
+            cls.RERANK_PENALTY_MISMATCH = float(mismatch_penalty)
+        if pathology_penalty is not None:
+            cls.RERANK_PENALTY_PATHOLOGY = float(pathology_penalty)
+
+    @classmethod
+    def configure_search_expansion(
+        cls,
+        *,
+        multiplier: Optional[int] = None,
+        minimum: Optional[int] = None,
+    ) -> None:
+        if multiplier is not None:
+            cls.SEARCH_EXPANSION_MULTIPLIER = max(1, int(multiplier))
+        if minimum is not None:
+            cls.SEARCH_EXPANSION_MIN = max(1, int(minimum))
 
     def __init__(self, index_dir: Path, *, allow_unsafe_pickle: bool = False) -> None:
         try:
@@ -290,6 +343,56 @@ class MedicalCaseSearcher:
         return len(mismatched) / max(len(discriminative_case_features), 1)
 
     @classmethod
+    def _pathology_mismatch_penalty(
+        cls,
+        *,
+        query_text: str,
+        query_features: set[str],
+        pathology: str,
+        case_text: str,
+    ) -> float:
+        normalized_query = (query_text or "").lower()
+        normalized_pathology = cls._normalize_label(pathology)
+        normalized_case = (case_text or "").lower()
+        penalty = 0.0
+
+        if "ebola" in normalized_pathology:
+            has_severe_viral_context = (
+                ("fever" in query_features)
+                and any(term in normalized_query for term in ("vomit", "diarrhea", "bleed", "hemorrhag", "travel"))
+            )
+            if not has_severe_viral_context:
+                penalty += 0.46
+
+        if "guillain" in normalized_pathology:
+            if not any(term in normalized_query for term in ("weakness", "ascending", "tingling", "paresthesia")):
+                penalty += 0.28
+
+        if "larygospasm" in normalized_pathology:
+            if not any(term in normalized_query for term in ("stridor", "high pitched", "breathing in", "inspiration")):
+                penalty += 0.24
+
+        if "chagas" in normalized_pathology:
+            if not any(term in normalized_query for term in ("travel", "latin", "lymph node", "swollen")):
+                penalty += 0.18
+
+        if "myocarditis" in normalized_pathology:
+            if any(term in normalized_query for term in ("one side", "one-sided", "unilateral")) and any(
+                term in normalized_query for term in ("sudden", "suddenly")
+            ):
+                penalty += 0.18
+
+        if "pulmonary neoplasm" in normalized_pathology:
+            if "weight loss" not in normalized_query and "chronic" not in normalized_query:
+                penalty += 0.14
+
+        # Penalize retrieval rows that are largely encoded/noisy when query is natural.
+        if normalized_query and cls._looks_like_encoded_symptoms(normalized_case):
+            penalty += 0.10
+
+        return min(1.0, penalty)
+
+    @classmethod
     def _rerank_results(
         cls,
         results: List[Dict[str, Any]],
@@ -300,21 +403,28 @@ class MedicalCaseSearcher:
         symptom_terms = query_symptoms or []
         query_features = cls._extract_feature_flags(query_text, query_symptoms)
 
-        def score(item: Dict[str, Any]) -> tuple[float, float, float]:
+        def score(item: Dict[str, Any]) -> tuple[float, float, float, float]:
             case_text = str(item.get("case_text", "") or item.get("symptoms", ""))
             embedding_score = float(item.get("similarity", 0.0))
             symptom_overlap = cls._symptom_overlap_score(symptom_terms, case_text)
             lexical_overlap = cls._lexical_overlap_score(query_text, case_text)
             feature_alignment = cls._feature_alignment_score(query_features, case_text)
             mismatch_penalty = cls._feature_mismatch_penalty(query_features, case_text)
-            blended = (
-                (0.55 * embedding_score)
-                + (0.28 * symptom_overlap)
-                + (0.15 * lexical_overlap)
-                + (0.22 * feature_alignment)
-                - (0.24 * mismatch_penalty)
+            pathology_penalty = cls._pathology_mismatch_penalty(
+                query_text=query_text,
+                query_features=query_features,
+                pathology=str(item.get("pathology", "")),
+                case_text=case_text,
             )
-            return (blended, feature_alignment, symptom_overlap)
+            blended = (
+                (cls.RERANK_WEIGHT_EMBEDDING * embedding_score)
+                + (cls.RERANK_WEIGHT_SYMPTOM_OVERLAP * symptom_overlap)
+                + (cls.RERANK_WEIGHT_LEXICAL * lexical_overlap)
+                + (cls.RERANK_WEIGHT_FEATURE_ALIGNMENT * feature_alignment)
+                - (cls.RERANK_PENALTY_MISMATCH * mismatch_penalty)
+                - (cls.RERANK_PENALTY_PATHOLOGY * pathology_penalty)
+            )
+            return (blended, feature_alignment, symptom_overlap, -pathology_penalty)
 
         reranked = sorted(results, key=score, reverse=True)
         return reranked
@@ -329,7 +439,10 @@ class MedicalCaseSearcher:
     ) -> List[Dict[str, Any]]:
         q = query_embedding.reshape(1, -1).astype("float32")
         self._faiss.normalize_L2(q)
-        search_k = min(max(k * 80, 400), self.index.ntotal)
+        search_k = min(
+            max(k * self.SEARCH_EXPANSION_MULTIPLIER, self.SEARCH_EXPANSION_MIN),
+            self.index.ntotal,
+        )
         scores, indices = self.index.search(q, search_k)
         results: List[Dict[str, Any]] = []
 
@@ -424,24 +537,25 @@ class FineTunedDiagnosisClassifier:
         except TypeError:
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_dir)
 
-        model_load_attempts: List[Dict[str, Any]] = [
+        model = None
+        load_attempts = [
             {"local_files_only": True, "low_cpu_mem_usage": True},
             {"local_files_only": True},
+            {"low_cpu_mem_usage": True},
             {},
         ]
-        model = None
-        for load_kwargs in model_load_attempts:
+        for kwargs in load_attempts:
             try:
                 model = AutoModelForSequenceClassification.from_pretrained(
                     self.model_dir,
-                    **load_kwargs,
+                    **kwargs,
                 )
                 break
             except TypeError:
                 continue
         if model is None:
             raise TypeError(
-                "Unable to load fine-tuned classifier with the available from_pretrained signatures."
+                "Unable to load fine-tuned model with compatible from_pretrained kwargs."
             )
         self.model = model
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
