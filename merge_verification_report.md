@@ -213,8 +213,7 @@ These patterns were added to mego-final's normalizer to help distinguish angina 
 
 **However**: the equivalent context patterns **were** added to `symptom_parser.py`'s `_extract_context()` function (which is the primary input processing path). The normalizer's `_CONTEXT_PATTERNS` are used in a downstream normalization step. Since the parser extracts these contexts, the gap in the normalizer is largely mitigated. That said, adding them to the normalizer as well would close the gap completely.
 
-**Recommendation**: ~~Add the missing patterns to `symptom_normalizer.py` for complete parity.~~  
-**Applied:** The 10 missing patterns were added to `backend/manager/symptom_normalizer.py` as part of this verification.
+**Recommendation (Applied):** The 10 missing patterns have been added to `backend/manager/symptom_normalizer.py` as part of this verification pass.
 
 ### 5.2 Excluded Training Infrastructure (Intentional)
 
@@ -299,22 +298,8 @@ The hesh-edits2 test suite (security/startup/API integration/rag/diagnosis) is f
 4. No duplicate or conflicting logic was introduced.
 5. The model name was harmonized to `gemini-2.5-flash-lite` globally.
 
-**Minor recommendation (non-blocking):**  
-Add the 10 missing context patterns from mego-final's `symptom_normalizer.py` to close the normalizer gap (on exertion, improves/better/relief with rest, Arabic equivalents). This improves angina-variant distinction during normalization. Example fix:
-
-```python
-# In backend/manager/symptom_normalizer.py, add to _CONTEXT_PATTERNS:
-re.compile(r"\bon exertion\b", re.IGNORECASE),
-re.compile(r"\bimproves with rest\b", re.IGNORECASE),
-re.compile(r"\bbetter with rest\b", re.IGNORECASE),
-re.compile(r"\brelief with rest\b", re.IGNORECASE),
-re.compile(r"يتحسن مع الراحة", re.IGNORECASE),
-re.compile(r"يرتاح مع الراحة", re.IGNORECASE),
-re.compile(r"يخف مع الراحة", re.IGNORECASE),
-re.compile(r"مع المجهود", re.IGNORECASE),
-re.compile(r"في الراحة", re.IGNORECASE),
-re.compile(r"أثناء الراحة", re.IGNORECASE),
-```
+**Minor recommendation (applied):**  
+The 10 missing context patterns from mego-final's `symptom_normalizer.py` were added to close the normalizer gap (on exertion, improves/better/relief with rest, Arabic equivalents). This improves angina-variant distinction during normalization.
 
 **No further manual reconciliation is required.** The merge is complete and correct.
 
@@ -324,7 +309,7 @@ re.compile(r"أثناء الراحة", re.IGNORECASE),
 
 | Priority | Action |
 |----------|--------|
-| LOW | ~~Add 10 missing context patterns to `symptom_normalizer.py`~~ **DONE** — applied in this verification pass |
+| LOW | Add 10 missing context patterns to `symptom_normalizer.py` — **DONE** (applied in this verification pass) |
 | INFORMATIONAL | Training scripts/CSVs from mego-final should be tracked in a separate `data-pipeline` or `training` branch |
 | INFORMATIONAL | Monitor `CLASSIFIER_PRIMARY_THRESHOLD=0.55` vs mego-final's `0.52` — if classifier over-defers to rules on weak cases, consider lowering to 0.52–0.53 |
 | INFORMATIONAL | Monitor `CLARIFICATION_MARGIN_THRESHOLD=0.12` vs mego-final's `0.10` — slightly fewer clarification questions will be asked; verify this is acceptable UX |
