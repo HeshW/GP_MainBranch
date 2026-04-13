@@ -13,11 +13,21 @@ _DURATION_PATTERNS = [
 _CONTEXT_PATTERNS = [
     re.compile(r"\bafter meals?\b", re.IGNORECASE),
     re.compile(r"\bwith exertion\b", re.IGNORECASE),
+    re.compile(r"\bon exertion\b", re.IGNORECASE),
+    re.compile(r"\bimproves with rest\b", re.IGNORECASE),
+    re.compile(r"\bbetter with rest\b", re.IGNORECASE),
+    re.compile(r"\brelief with rest\b", re.IGNORECASE),
     re.compile(r"\bat rest\b", re.IGNORECASE),
     re.compile(r"\bworsening\b", re.IGNORECASE),
     re.compile(r"\bprogressive(?:ly)?\b", re.IGNORECASE),
     re.compile(r"\bsudden(?:ly)?\b", re.IGNORECASE),
     re.compile(r"\bgradual(?:ly)?\b", re.IGNORECASE),
+    re.compile(r"يتحسن مع الراحة", re.IGNORECASE),
+    re.compile(r"يرتاح مع الراحة", re.IGNORECASE),
+    re.compile(r"يخف مع الراحة", re.IGNORECASE),
+    re.compile(r"مع المجهود", re.IGNORECASE),
+    re.compile(r"في الراحة", re.IGNORECASE),
+    re.compile(r"أثناء الراحة", re.IGNORECASE),
 ]
 
 _DDX_STYLE_TEMPLATES = {

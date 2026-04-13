@@ -93,6 +93,7 @@ def _load_aliases() -> Dict[str, str]:
 
 
 _lab_aliases = None
+_symptom_alias_index: Optional[Dict[str, str]] = None
 
 
 def _get_lab_aliases() -> Dict[str, str]:
@@ -100,6 +101,19 @@ def _get_lab_aliases() -> Dict[str, str]:
     if _lab_aliases is None:
         _lab_aliases = _load_aliases()
     return _lab_aliases
+
+
+def _get_symptom_alias_index() -> Optional[Dict[str, str]]:
+    """Return cached fuzzy alias index, or None when rapidfuzz is unavailable."""
+    global _symptom_alias_index
+    if _symptom_alias_index is None:
+        try:
+            from manager.fuzzy_utils import _build_alias_index
+
+            _symptom_alias_index = _build_alias_index(SYMPTOM_PATTERNS)
+        except ImportError:
+            return None
+    return _symptom_alias_index
 
 
 def _extract_labs(raw_text: str) -> Dict[str, Dict[str, Any]]:
@@ -186,6 +200,38 @@ def _extract_symptoms(raw_text: str) -> List[Dict[str, Any]]:
                 break
         if matched_alias:
             found.append({"symptom": canonical, "source": matched_alias, "confidence": 0.85})
+
+    # Fuzzy fallback: recover misspellings/OCR noise not captured by exact aliases.
+    already_matched = {item["symptom"] for item in found}
+    alias_index = _get_symptom_alias_index()
+    if alias_index is not None:
+        try:
+            from manager.fuzzy_utils import (
+                FUZZY_SYMPTOM_CONFIDENCE,
+                extract_candidate_tokens,
+                fuzzy_match_symptom,
+            )
+
+            for token in extract_candidate_tokens(text):
+                result = fuzzy_match_symptom(token, alias_index)
+                if result is None:
+                    continue
+
+                canonical_match, _matched_alias, _score = result
+                if canonical_match in already_matched:
+                    continue
+
+                found.append(
+                    {
+                        "symptom": canonical_match,
+                        "source": token,
+                        "confidence": FUZZY_SYMPTOM_CONFIDENCE,
+                        "fuzzy": True,
+                    }
+                )
+                already_matched.add(canonical_match)
+        except ImportError:
+            pass
 
     negation_cues = ("no", "denies", "deny", "without", "not having", "negative for", "لا يوجد", "بدون", "ينفي", "مش")
     negation_cues = negation_cues + ("ما في", "مافي", "ما عندي", "ليس")
