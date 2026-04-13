@@ -186,3 +186,80 @@ def test_synthesizer_normalizes_openrouter_style_payload(monkeypatch):
     assert result["metadata"]["model_name"] == "openrouter/auto"
     assert "Possible NSTEMI" in result["response_text"]
     assert "Recommended next steps" in result["response_text"]
+
+
+def test_synthesizer_avoids_duplicate_summary_and_enriches_sparse_defaults(monkeypatch):
+    duplicate_line = "AI-assisted assessment suggests URTI (confidence 0.79, source: classifier)."
+
+    class StubProvider:
+        async def generate_content(self, prompt, system_instruction=None, response_model=None):
+            return f'{{"summary":"{duplicate_line}"}}'
+
+    monkeypatch.setattr(
+        "models.diagnosis.synthesis.create_model_provider",
+        lambda **kwargs: ("openrouter", StubProvider(), "openrouter/auto"),
+    )
+
+    synthesizer = DiagnosisResponseSynthesizer(
+        "unused",
+        llm_provider="openrouter",
+        llm_api_key="openrouter-key",
+        llm_model_name="openrouter/auto",
+    )
+    result = run_async(
+        synthesizer.synthesize(
+            {"raw_text": "cough and sore throat"},
+            {
+                "summary": duplicate_line,
+                "final_diagnosis": {"diagnosis": "URTI", "confidence": 0.79, "source": "classifier"},
+                "safety": {"reasons": ["Clinical review is recommended for any abnormal finding."]},
+            },
+        )
+    )
+
+    assert result["metadata"]["mode"] == "llm"
+    assert result["response_text"].count(duplicate_line) == 1
+    structured = result["structured_response"]
+    assert structured is not None
+    assert len(structured["recommended_next_steps"]) >= 2
+    assert len(structured["red_flags"]) >= 2
+
+
+def test_synthesizer_collapses_duplicate_paragraphs_inside_provider_summary(monkeypatch):
+    duplicate_line = "AI-assisted assessment suggests URTI (confidence 0.79, source: classifier) with rule-based safety checks attached."
+
+    class StubProvider:
+        async def generate_content(self, prompt, system_instruction=None, response_model=None):
+            return (
+                '{"diagnosis_summary":"'
+                + duplicate_line
+                + "\\n\\n"
+                + duplicate_line
+                + '","patient_friendly_explanation":"Please continue with clinician follow-up.",'
+                '"recommended_next_steps":["Hydration"],"red_flags":["Worsening breathing difficulty"],'
+                '"disclaimer":"Consult clinician."}'
+            )
+
+    monkeypatch.setattr(
+        "models.diagnosis.synthesis.create_model_provider",
+        lambda **kwargs: ("openrouter", StubProvider(), "openrouter/auto"),
+    )
+
+    synthesizer = DiagnosisResponseSynthesizer(
+        "unused",
+        llm_provider="openrouter",
+        llm_api_key="openrouter-key",
+        llm_model_name="openrouter/auto",
+    )
+    result = run_async(
+        synthesizer.synthesize(
+            {"raw_text": "cough and sore throat"},
+            {
+                "summary": duplicate_line,
+                "final_diagnosis": {"diagnosis": "URTI", "confidence": 0.79, "source": "classifier"},
+            },
+        )
+    )
+
+    assert result["metadata"]["mode"] == "llm"
+    assert result["response_text"].count(duplicate_line) == 1

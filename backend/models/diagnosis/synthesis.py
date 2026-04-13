@@ -64,6 +64,18 @@ class DiagnosisResponseSynthesizer:
         return []
 
     @staticmethod
+    def _unique_text_list(values: list[str]) -> list[str]:
+        unique: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            normalized = value.strip().lower()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            unique.append(value.strip())
+        return unique
+
+    @staticmethod
     def _first_text(*values: Any) -> str:
         for value in values:
             if isinstance(value, str):
@@ -71,6 +83,24 @@ class DiagnosisResponseSynthesizer:
                 if stripped:
                     return stripped
         return ""
+
+    @staticmethod
+    def _normalize_inline_whitespace(value: str) -> str:
+        return " ".join(value.strip().lower().split())
+
+    @classmethod
+    def _collapse_duplicate_paragraphs(cls, text: str) -> str:
+        paragraphs = [item.strip() for item in text.split("\n\n") if item.strip()]
+        if not paragraphs:
+            return text.strip()
+
+        collapsed: list[str] = []
+        for paragraph in paragraphs:
+            normalized = cls._normalize_inline_whitespace(paragraph)
+            if collapsed and normalized == cls._normalize_inline_whitespace(collapsed[-1]):
+                continue
+            collapsed.append(paragraph)
+        return "\n\n".join(collapsed)
 
     @classmethod
     def _normalize_structured_response(
@@ -102,6 +132,7 @@ class DiagnosisResponseSynthesizer:
             patient_explanation.get("summary"),
             diagnosis.get("summary"),
         )
+        diagnosis_summary = cls._collapse_duplicate_paragraphs(diagnosis_summary)
 
         patient_explanation_text = cls._first_text(
             parsed_payload.get("patient_friendly_explanation"),
@@ -110,12 +141,14 @@ class DiagnosisResponseSynthesizer:
             patient_explanation.get("summary"),
             diagnosis.get("summary"),
         )
+        patient_explanation_text = cls._collapse_duplicate_paragraphs(patient_explanation_text)
 
         recommended_next_steps = cls._as_text_list(parsed_payload.get("recommended_next_steps"))
         if not recommended_next_steps:
             recommended_next_steps = cls._as_text_list(parsed_payload.get("next_steps"))
         if not recommended_next_steps:
             recommended_next_steps = cls._as_text_list(patient_explanation.get("next_steps"))
+        recommended_next_steps = cls._unique_text_list(recommended_next_steps)
 
         red_flags = cls._as_text_list(parsed_payload.get("red_flags"))
         if not red_flags:
@@ -125,6 +158,7 @@ class DiagnosisResponseSynthesizer:
         if not red_flags:
             safety = diagnosis.get("safety") if isinstance(diagnosis, dict) else {}
             red_flags = cls._as_text_list((safety or {}).get("reasons"))
+        red_flags = cls._unique_text_list(red_flags)
 
         default_disclaimer = (
             "هذه المعلومات لغرض الدعم الإكلينيكي الأولي فقط ولا تغني عن تقييم الطبيب المختص."
@@ -149,18 +183,47 @@ class DiagnosisResponseSynthesizer:
                 if arabic_mode
                 else "There is residual uncertainty, and direct clinical evaluation is required for confirmation."
             )
+        elif patient_explanation_text.strip().lower() == diagnosis_summary.strip().lower():
+            final_label = str((diagnosis.get("final_diagnosis") or {}).get("diagnosis") or "this condition").strip()
+            patient_explanation_text = (
+                f"تشير البيانات الحالية إلى احتمال {final_label}، لكن يلزم تقييم سريري مباشر لتأكيد الحالة ووضع خطة علاج دقيقة."
+                if arabic_mode
+                else f"Current findings suggest possible {final_label}, but direct clinician evaluation is still required to confirm the diagnosis and guide treatment."
+            )
         if not recommended_next_steps:
             recommended_next_steps = [
                 "Arrange clinician follow-up for confirmation and management."
                 if not arabic_mode
                 else "يُرجى ترتيب متابعة مع الطبيب لتأكيد التشخيص ووضع الخطة العلاجية."
             ]
+        if len(recommended_next_steps) < 2:
+            recommended_defaults = [
+                "Arrange clinician follow-up for confirmation and management.",
+                "Monitor symptoms closely and seek reassessment if they persist or worsen.",
+            ]
+            if arabic_mode:
+                recommended_defaults = [
+                    "يُرجى ترتيب متابعة مع الطبيب لتأكيد التشخيص ووضع الخطة العلاجية.",
+                    "راقب الأعراض بدقة واطلب إعادة التقييم إذا استمرت أو ساءت.",
+                ]
+            recommended_next_steps = cls._unique_text_list(recommended_next_steps + recommended_defaults)
         if not red_flags:
             red_flags = [
                 "Worsening chest pain, breathing difficulty, or fainting requires urgent care."
                 if not arabic_mode
                 else "تفاقم ألم الصدر أو صعوبة التنفس أو الإغماء يستدعي رعاية طبية عاجلة."
             ]
+        if len(red_flags) < 2:
+            red_flag_defaults = [
+                "Worsening chest pain, breathing difficulty, or fainting requires urgent care.",
+                "High fever, confusion, severe weakness, or inability to keep fluids down needs immediate medical attention.",
+            ]
+            if arabic_mode:
+                red_flag_defaults = [
+                    "تفاقم ألم الصدر أو صعوبة التنفس أو الإغماء يستدعي رعاية طبية عاجلة.",
+                    "ارتفاع الحرارة الشديد أو الارتباك أو الضعف الشديد أو عدم القدرة على شرب السوائل يتطلب عناية طبية فورية.",
+                ]
+            red_flags = cls._unique_text_list(red_flags + red_flag_defaults)
 
         validated = AIClinicalResponse.model_validate(
             {
@@ -254,6 +317,7 @@ class DiagnosisResponseSynthesizer:
             "Use the fused diagnosis context below to produce a patient-facing explanation.\n"
             "Do not invent evidence. Prefer the final fused diagnosis over raw retrieved examples.\n"
             "If the evidence is conflicting, say so clearly and recommend clinician review.\n"
+            "Provide at least two concise recommended next steps and at least two red flags unless already clinically resolved.\n"
             f"Target response language: {language_name}.\n"
             "All patient-facing content in your JSON fields must be in that language.\n\n"
             "[FUSED DIAGNOSTIC CONTEXT]\n"
@@ -319,6 +383,7 @@ class DiagnosisResponseSynthesizer:
                 + "\n".join(f"- {item}" for item in structured["red_flags"])
                 + f"\n\n{structured['disclaimer']}"
             )
+            response_text = self._collapse_duplicate_paragraphs(response_text)
             return {
                 "response_text": response_text,
                 "structured_response": structured,

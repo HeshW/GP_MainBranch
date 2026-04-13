@@ -57,6 +57,10 @@ function symptomHeuristic(text: string): boolean {
   return /pain|fever|cough|fatigue|dizziness|thirst|nausea|vomit|headache|chest|breath|حمى|الم|وجع|كحة|ضيق|دوخة|غثيان/.test(lowered);
 }
 
+function normalizeForCompare(value: string | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
 export function UserInterfaceView({
   loading,
   result,
@@ -333,6 +337,17 @@ export function UserInterfaceView({
     const therapy = analysis.therapy?.therapy_plan;
     const safetyReasons = analysis.diagnosis?.safety?.reasons ?? [];
     const clarification = analysis.diagnosis?.clarification;
+    const summaryText = summary?.trim();
+    const aiResponseText = aiResponse?.trim();
+    const normalizedAi = normalizeForCompare(aiResponseText);
+    const showSummary = Boolean(summaryText) && !aiResponseText;
+    const visibleSafetyReasons = safetyReasons.filter((item) => {
+      const normalizedItem = normalizeForCompare(item);
+      if (!normalizedItem) {
+        return false;
+      }
+      return !normalizedAi.includes(normalizedItem);
+    });
 
     return (
       <article className="chat-first-card">
@@ -344,13 +359,13 @@ export function UserInterfaceView({
           </p>
         </header>
 
-        {summary && <p className="chat-first-card__body">{summary}</p>}
-        {aiResponse && <p className="chat-first-card__body">{aiResponse}</p>}
+        {showSummary && <p className="chat-first-card__body">{summaryText}</p>}
+        {aiResponseText && <p className="chat-first-card__body">{aiResponseText}</p>}
         {therapy && <p className="chat-first-card__body">Therapy: {therapy}</p>}
 
-        {!!safetyReasons.length && (
+        {!!visibleSafetyReasons.length && (
           <ul className="flat-list">
-            {safetyReasons.map((item) => (
+            {visibleSafetyReasons.map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
