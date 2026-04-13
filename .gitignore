@@ -8,6 +8,7 @@ venv/
 .venv311_clean/
 .env
 presentation/
+Mego Merge/
 # AI Models & Data (Too large for Git)
 *.pth
 *.bin
