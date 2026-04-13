@@ -5,7 +5,7 @@ Integrate mego-final diagnosis intelligence into hesh-edits2 while preserving he
 
 ## Branch + Safety
 - [x] Create integration branch from hesh-edits2: hesh_mego_final
-- [ ] Confirm clean working tree before merge commit
+- [x] Confirm clean working tree before merge commit
 - [x] Keep targeted artifacts local-only (no large files committed)
 
 ## Artifact Readiness
