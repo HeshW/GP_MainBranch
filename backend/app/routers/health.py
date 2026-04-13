@@ -32,4 +32,5 @@ def meta(request: Request) -> MetaResponse:
             runtime.get("finetuned_classifier_enabled", s.use_finetuned_classifier and finetuned_ok)
         ),
         finetuned_model_configured=finetuned_ok,
+        therapy_enabled=bool(runtime.get("therapy_enabled", getattr(s, "enable_therapy", False))),
     )

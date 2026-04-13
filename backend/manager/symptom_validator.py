@@ -107,6 +107,7 @@ def validate_parsed(parsed: Dict[str, Any], low_confidence_threshold: float = LO
 
     negated_symptoms: set[str] = set()
     symptom_texts: List[str] = []
+    seen_positive_symptoms: set[str] = set()
     for sym in symptoms_in:
         if not isinstance(sym, dict):
             continue
@@ -116,6 +117,9 @@ def validate_parsed(parsed: Dict[str, Any], low_confidence_threshold: float = LO
             if sym.get("negated"):
                 negated_symptoms.add(normalized_symptom)
                 continue
+            if normalized_symptom in seen_positive_symptoms:
+                continue
+            seen_positive_symptoms.add(normalized_symptom)
             symptom_texts.append(normalized_symptom)
 
     symptom_texts = [

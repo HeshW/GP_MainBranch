@@ -339,6 +339,51 @@ def test_build_clarification_returns_arabic_questions_for_arabic_input():
     assert any("هل" in item["question"] for item in clarification["questions"])
 
 
+def test_serious_respiratory_output_requires_follow_up_reasons():
+    reasons = DiagnosisEngine._clarification_reasons(
+        findings=[
+            {
+                "condition": "Possible lower respiratory infection pattern",
+                "confidence": "low",
+                "evidence": "Respiratory symptom cluster detected.",
+                "severity": "high",
+                "source": "symptom_rules",
+            }
+        ],
+        patient_symptoms=["cough", "shortness of breath"],
+        candidates=[
+            {"label": "Pneumonia", "confidence": 0.86, "sources": ["respiratory_pattern_expansion"]},
+            {"label": "Bronchitis", "confidence": 0.64, "sources": ["respiratory_pattern_expansion"]},
+        ],
+        final_diagnosis={
+            "diagnosis": "Pneumonia",
+            "confidence": 0.86,
+            "source": "respiratory_pattern_expansion",
+            "rule_alignment": True,
+        },
+    )
+
+    assert any("Serious or high-risk diagnosis" in reason for reason in reasons)
+
+
+def test_upper_respiratory_context_adds_common_uri_candidates():
+    expanded = DiagnosisEngine._expand_base_diagnostic_candidates(
+        [
+            {
+                "label": "Possible lower respiratory infection pattern",
+                "confidence": 0.45,
+                "sources": ["symptom_rules"],
+                "reasoning": "rule",
+                "evidence": ["cluster"],
+            }
+        ],
+        report_text="sore throat with nasal congestion and cough after a recent cold",
+    )
+
+    labels = {item["label"] for item in expanded}
+    assert "URTI" in labels or "Viral pharyngitis" in labels
+
+
 def test_diagnose_raises_on_invalid_report_type():
     engine = DiagnosisEngine()
     with pytest.raises(TypeError):
@@ -374,3 +419,33 @@ def test_build_combined_text_accepts_sections_list_from_ocr_output():
     assert "Clinical: Dyspnea and chest pain" in combined
     assert "Progressive over two days" in combined
     assert "Diagnosis: Consider cardiopulmonary differential" in combined
+
+
+def test_diagnose_arabic_input_localizes_summary_and_safety_text():
+    out = run_async(
+        diagnose(
+            {
+                "raw_text": "ما عندي كحة ولا حرارة لكن عندي دوخة وتعب من يومين",
+                "symptoms": ["dizziness", "fatigue"],
+                "labs": {},
+            }
+        )
+    )
+
+    assert out["response_language"] == "ar"
+    assert "التقييم" in out["summary"]
+    assert any(("يوصى" in reason or "تم تصنيف" in reason) for reason in out["safety"]["reasons"])
+
+
+def test_diagnose_keeps_arabic_response_language_with_mixed_wrapper_text():
+    out = run_async(
+        diagnose(
+            {
+                "raw_text": "Patient-reported complaint: ما عندي كحة ولا حرارة لكن عندي دوخة",
+                "symptoms": ["dizziness", "fatigue"],
+                "labs": {},
+            }
+        )
+    )
+
+    assert out["response_language"] == "ar"

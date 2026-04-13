@@ -1,6 +1,9 @@
 # GP Medical Analysis - HTTP API
 
-FastAPI layer over `manager.ChatManager` for OCR, AI-first diagnosis fusion, and therapy generation.
+FastAPI layer over `manager.ChatManager` for OCR and AI-first diagnosis fusion.
+
+Therapy generation is feature-flagged and disabled by default (`ENABLE_THERAPY=false`).
+When disabled, pipeline responses keep the `therapy` key with a compatibility placeholder payload.
 
 ## Run (from repository root)
 

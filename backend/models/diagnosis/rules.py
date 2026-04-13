@@ -138,7 +138,18 @@ SYMPTOM_RULES: list[dict[str, Any]] = [
         "condition": "Possible lower respiratory infection pattern",
         "confidence": "low",
         "severity": "high",
+        "min_matches": 2,
+        "text_any": ("fever", "productive cough", "pleuritic", "infection", "chills", "sputum"),
         "evidence_fmt": "Respiratory symptom cluster detected: {matched}.",
+    },
+    {
+        "symptoms": {"sore throat", "nasal congestion", "cough", "hoarseness", "fever"},
+        "condition": "Possible upper respiratory tract infection pattern",
+        "confidence": "low",
+        "severity": "moderate",
+        "min_matches": 2,
+        "text_any": ("sore throat", "nasal congestion", "runny nose", "hoarseness", "cold", "upper respiratory"),
+        "evidence_fmt": "Upper-respiratory symptom cluster detected: {matched}{context_clause}.",
     },
     {
         "symptoms": {"chest pain", "shortness of breath"},

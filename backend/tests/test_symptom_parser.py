@@ -46,3 +46,31 @@ def test_parse_symptoms_supports_arabic_and_mixed_language():
     assert "shortness of breath" in found
     assert "duration" in parsed["context"]
     assert "triggers" in parsed["context"]
+
+
+def test_parse_symptoms_negation_handles_longer_scope_window():
+    text = "I have fatigue and dizziness, but I do not currently have any fever at this time."
+    parsed = parse_symptoms(text)
+
+    negated = {sym["symptom"] for sym in parsed["symptoms"] if sym.get("negated")}
+    assert "fever" in negated
+
+
+def test_parse_symptoms_negation_handles_arabic_variants():
+    text = "ما عندي كحة ولا حرارة لكن عندي دوخة"
+    parsed = parse_symptoms(text)
+
+    negated = {sym["symptom"] for sym in parsed["symptoms"] if sym.get("negated")}
+    positive = {sym["symptom"] for sym in parsed["symptoms"] if not sym.get("negated")}
+
+    assert "cough" in negated
+    assert "fever" in negated
+    assert "dizziness" in positive
+
+
+def test_parse_symptoms_qualified_cough_negation_does_not_cancel_plain_cough():
+    text = "No productive cough, but I still have cough and fever."
+    parsed = parse_symptoms(text)
+
+    positive = {sym["symptom"] for sym in parsed["symptoms"] if not sym.get("negated")}
+    assert "cough" in positive

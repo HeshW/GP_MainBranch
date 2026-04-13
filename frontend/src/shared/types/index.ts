@@ -5,6 +5,9 @@ export interface MetaInfo {
   api_version: string;
   rag_enabled: boolean;
   faiss_configured: boolean;
+  finetuned_classifier_enabled?: boolean;
+  finetuned_model_configured?: boolean;
+  therapy_enabled?: boolean;
 }
 
 export interface ChatMessage {

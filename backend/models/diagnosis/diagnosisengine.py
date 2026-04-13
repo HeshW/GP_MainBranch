@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 import logging
 
 from models.common.ai_provider import GeminiProvider
+from models.common.language import detect_preferred_language, normalize_language
 from .rag import (
     ArabicToEnglishTranslator,
     ClinicalBERTEmbedder,
@@ -35,14 +36,39 @@ class DiagnosisEngine:
     CLARIFICATION_OVERRIDE_MARGIN = 0.05
     CLARIFICATION_OVERRIDE_GAIN_THRESHOLD = 0.12
     CLARIFICATION_LEADER_MARGIN = 0.05
+    SERIOUS_CLARIFICATION_CONFIDENCE_THRESHOLD = 0.88
+    SERIOUS_CLARIFICATION_MARGIN_THRESHOLD = 0.18
+    SERIOUS_RESPIRATORY_CONFIDENCE_THRESHOLD = 0.90
+    SERIOUS_RESPIRATORY_MARGIN_THRESHOLD = 0.20
+    SERIOUS_MIN_SIGNAL_COUNT = 3
     CLASSIFIER_OVERRIDE_MARGIN = 0.08
     PRE_DIAGNOSIS_SIGNAL_WEIGHT = 0.35
     PRE_DIAGNOSIS_RULE_ALIGNMENT_BONUS = 0.06
     PRE_DIAGNOSIS_GENERIC_PATTERN_PENALTY = 0.04
     MAX_CLARIFICATION_QUESTIONS = 3
+    SERIOUS_DIAGNOSIS_KEYWORDS = (
+        "pulmonary embolism",
+        "spontaneous pneumothorax",
+        "acute pulmonary edema",
+        "possible nstemi",
+        "possible stemi",
+        "unstable angina",
+        "myocarditis",
+        "pericarditis",
+        "tuberculosis",
+        "pneumonia",
+    )
+    SERIOUS_RESPIRATORY_KEYWORDS = (
+        "pulmonary embolism",
+        "spontaneous pneumothorax",
+        "acute pulmonary edema",
+        "pneumonia",
+        "tuberculosis",
+    )
     GENERIC_RULE_PATTERN_DIRECT_MAP = {
         "possible gastroesophageal reflux pattern": "GERD",
         "possible anemia related symptom pattern": "Anemia",
+        "possible upper respiratory tract infection pattern": "URTI",
     }
     GENERIC_RULE_PATTERN_FAMILY_KEYWORDS = {
         "possible lower respiratory infection pattern": (
@@ -64,6 +90,13 @@ class DiagnosisEngine:
             "influenza",
             "viral pharyngitis",
             "urti",
+        ),
+        "possible upper respiratory tract infection pattern": (
+            "urti",
+            "viral pharyngitis",
+            "acute laryngitis",
+            "influenza",
+            "allergic sinusitis",
         ),
         "possible cardiopulmonary red flag symptom pattern": (
             "pulmonary embolism",
@@ -235,6 +268,10 @@ class DiagnosisEngine:
         "viral pharyngitis": {
             "positive": ("sore throat", "mild fever", "nasal congestion", "cold symptoms", "hoarseness"),
             "negative": ("irregular palpitations", "chest pain"),
+        },
+        "urti": {
+            "positive": ("sore throat", "nasal congestion", "runny nose", "hoarseness", "recent cold"),
+            "negative": ("pleuritic", "leg swelling", "immobility"),
         },
         "acute laryngitis": {
             "positive": ("hoarseness", "painful voice use", "voice", "recent cold", "upper respiratory"),
@@ -436,8 +473,21 @@ class DiagnosisEngine:
             )
 
     @staticmethod
-    def _build_safety(findings: list[Dict[str, Any]]) -> Dict[str, Any]:
+    def _build_safety(
+        findings: list[Dict[str, Any]],
+        *,
+        response_language: str = "en",
+    ) -> Dict[str, Any]:
+        language = normalize_language(response_language)
+        arabic_mode = language == "ar"
         severity_order = {"critical": 4, "high": 3, "moderate": 2, "low": 1, "info": 0}
+        severity_labels_ar = {
+            "critical": "حرجة",
+            "high": "مرتفعة",
+            "moderate": "متوسطة",
+            "low": "منخفضة",
+            "info": "معلوماتية",
+        }
         highest_severity = "info"
         reasons: list[str] = []
 
@@ -446,17 +496,30 @@ class DiagnosisEngine:
             if severity_order.get(severity, 0) > severity_order.get(highest_severity, 0):
                 highest_severity = severity
             if severity in {"critical", "high"}:
+                condition = str(finding.get("condition", "Unknown finding"))
+                if arabic_mode:
+                    reason = f"تم تصنيف {condition} بدرجة خطورة {severity_labels_ar.get(severity, severity)}."
+                else:
+                    reason = f"{condition} marked as {severity} severity."
                 reasons.append(
-                    f"{finding.get('condition', 'Unknown finding')} marked as {severity} severity."
+                    reason
                 )
 
         clinician_review_required = bool(findings)
         emergency_attention_recommended = highest_severity == "critical"
 
         if not findings:
-            reasons.append("No abnormal findings were detected by the rule engine.")
+            reasons.append(
+                "لم يتم اكتشاف نتائج غير طبيعية بواسطة قواعد التحليل."
+                if arabic_mode
+                else "No abnormal findings were detected by the rule engine."
+            )
         elif clinician_review_required and not reasons:
-            reasons.append("Clinical review is recommended for any abnormal finding.")
+            reasons.append(
+                "يوصى بمراجعة سريرية لأي نتيجة غير طبيعية."
+                if arabic_mode
+                else "Clinical review is recommended for any abnormal finding."
+            )
 
         return {
             "clinician_review_required": clinician_review_required,
@@ -696,6 +759,18 @@ class DiagnosisEngine:
             "hoarseness" in normalized_context
             and any(term in normalized_context for term in ("voice", "recent cold", "sore throat"))
         )
+        upper_respiratory_context = any(
+            term in normalized_context
+            for term in ("sore throat", "nasal congestion", "runny nose", "hoarseness", "recent cold", "upper respiratory")
+        )
+        respiratory_infection_context = any(
+            term in normalized_context
+            for term in ("fever", "productive cough", "pleuritic", "infection", "chills", "sputum")
+        )
+        wheeze_dominant_context = (
+            any(term in normalized_context for term in ("wheez", "chest tightness"))
+            and not respiratory_infection_context
+        )
 
         if unstable_angina_context:
             cls._inject_or_promote_candidate(
@@ -756,24 +831,41 @@ class DiagnosisEngine:
         )
         if lower_respiratory_pattern is not None:
             pattern_conf = float(lower_respiratory_pattern.get("confidence", 0.35))
+            bronchitis_confidence = max(0.40, pattern_conf + (0.07 if respiratory_infection_context else 0.03))
+            pneumonia_confidence = max(0.34, pattern_conf + (0.06 if respiratory_infection_context else -0.01))
+            bronchospasm_confidence = max(0.39, pattern_conf + (0.07 if wheeze_dominant_context else 0.04))
+
             cls._inject_or_promote_candidate(
                 candidate_map,
                 label="Bronchitis",
-                confidence=max(0.42, pattern_conf + 0.06),
+                confidence=bronchitis_confidence,
                 source="respiratory_pattern_expansion",
             )
             cls._inject_or_promote_candidate(
                 candidate_map,
                 label="Pneumonia",
-                confidence=max(0.40, pattern_conf + 0.05),
+                confidence=pneumonia_confidence,
                 source="respiratory_pattern_expansion",
             )
             cls._inject_or_promote_candidate(
                 candidate_map,
                 label="Bronchospasm / acute asthma exacerbation",
-                confidence=max(0.39, pattern_conf + 0.04),
+                confidence=bronchospasm_confidence,
                 source="respiratory_pattern_expansion",
             )
+            if upper_respiratory_context:
+                cls._inject_or_promote_candidate(
+                    candidate_map,
+                    label="URTI",
+                    confidence=max(0.41, pattern_conf + 0.04),
+                    source="respiratory_pattern_expansion",
+                )
+                cls._inject_or_promote_candidate(
+                    candidate_map,
+                    label="Viral pharyngitis",
+                    confidence=max(0.40, pattern_conf + 0.03),
+                    source="respiratory_pattern_expansion",
+                )
             cls._inject_or_promote_candidate(
                 candidate_map,
                 label="Sarcoidosis",
@@ -823,6 +915,10 @@ class DiagnosisEngine:
 
         has_infection = any(term in normalized_context for term in ("fever", "productive cough", "infection"))
         has_wheeze = "wheez" in normalized_context or "chest tightness" in normalized_context
+        upper_respiratory_context = any(
+            term in normalized_context
+            for term in ("sore throat", "nasal congestion", "runny nose", "hoarseness", "recent cold", "upper respiratory")
+        )
         no_fever = cls._is_negated_signal(normalized_context, "fever") or "without fever" in normalized_context
         no_productive_cough = (
             cls._is_negated_signal(normalized_context, "productive cough")
@@ -909,6 +1005,8 @@ class DiagnosisEngine:
                 boost += 0.12
             if has_wheeze and no_fever and no_productive_cough:
                 boost -= 0.09
+            if upper_respiratory_context and not has_infection:
+                boost -= 0.10
 
         if "bronchospasm" in normalized_label or "asthma" in normalized_label:
             if has_wheeze:
@@ -921,6 +1019,12 @@ class DiagnosisEngine:
                 boost -= 0.08
             if has_wheeze and (no_fever or no_productive_cough):
                 boost -= 0.08
+
+        if "urti" in normalized_label and upper_respiratory_context:
+            boost += 0.16
+
+        if "viral pharyngitis" in normalized_label and upper_respiratory_context:
+            boost += 0.08
 
         if "atrial fibrillation" in normalized_label and af_context:
             boost += 0.12
@@ -1079,6 +1183,7 @@ class DiagnosisEngine:
             final_source = str(final_diagnosis.get("source", "")).strip().lower()
             final_label = str(final_diagnosis.get("diagnosis", "")).strip()
             candidate_margin = 0.0
+            serious_follow_up_required = False
             canonicalized_from = cls._normalize_label(str(final_diagnosis.get("canonicalized_from", "")))
             if (
                 final_source == "rules_fallback"
@@ -1090,10 +1195,26 @@ class DiagnosisEngine:
                 top_confidence = cls._normalize_confidence(candidates[0].get("confidence"))
                 second_confidence = cls._normalize_confidence(candidates[1].get("confidence"))
                 candidate_margin = top_confidence - second_confidence
+
+            serious_follow_up_required = cls._requires_serious_follow_up(
+                label=final_label,
+                confidence=final_confidence,
+                candidate_margin=candidate_margin,
+                findings=findings,
+                patient_symptoms=patient_symptoms,
+                final_diagnosis=final_diagnosis,
+            )
+            if serious_follow_up_required:
+                reasons.append(
+                    "Serious or high-risk diagnosis requires targeted follow-up before final confirmation."
+                )
+
+            if len(candidates) >= 2:
                 if (
                     final_confidence >= 0.70
                     and candidate_margin >= 0.18
                     and bool(final_diagnosis.get("rule_alignment"))
+                    and not serious_follow_up_required
                 ):
                     return reasons
                 if (
@@ -1107,12 +1228,14 @@ class DiagnosisEngine:
                         "cardiopulmonary_pattern_expansion",
                         "respiratory_pattern_expansion",
                     }
+                    and not serious_follow_up_required
                 ):
                     return reasons
             if (
                 final_source == "respiratory_pattern_expansion"
                 and final_confidence >= 0.80
                 and bool(final_diagnosis.get("rule_alignment"))
+                and not serious_follow_up_required
                 and cls._label_matches_keywords(
                     final_label,
                     ("bronchitis", "bronchospasm", "acute asthma exacerbation", "asthma"),
@@ -1307,6 +1430,66 @@ class DiagnosisEngine:
         if not normalized_label:
             return False
         return any(keyword in normalized_label for keyword in cls.RESPIRATORY_LABEL_KEYWORDS)
+
+    @classmethod
+    def _is_serious_label(cls, label: str) -> bool:
+        normalized_label = cls._normalize_label(label)
+        if not normalized_label:
+            return False
+        return any(keyword in normalized_label for keyword in cls.SERIOUS_DIAGNOSIS_KEYWORDS)
+
+    @classmethod
+    def _is_serious_respiratory_label(cls, label: str) -> bool:
+        normalized_label = cls._normalize_label(label)
+        if not normalized_label:
+            return False
+        return any(keyword in normalized_label for keyword in cls.SERIOUS_RESPIRATORY_KEYWORDS)
+
+    @classmethod
+    def _has_sparse_supporting_signals(
+        cls,
+        *,
+        findings: list[Dict[str, Any]],
+        patient_symptoms: list[str],
+        final_diagnosis: Optional[Dict[str, Any]],
+    ) -> bool:
+        supporting_evidence = (final_diagnosis or {}).get("supporting_evidence", []) or []
+        signal_count = len({cls._normalize_label(item) for item in patient_symptoms if str(item).strip()})
+        signal_count += len(findings)
+        signal_count += sum(1 for item in supporting_evidence if str(item).strip())
+        return signal_count < cls.SERIOUS_MIN_SIGNAL_COUNT
+
+    @classmethod
+    def _requires_serious_follow_up(
+        cls,
+        *,
+        label: str,
+        confidence: float,
+        candidate_margin: float,
+        findings: list[Dict[str, Any]],
+        patient_symptoms: list[str],
+        final_diagnosis: Optional[Dict[str, Any]],
+    ) -> bool:
+        if not cls._is_serious_label(label):
+            return False
+
+        confidence_threshold = cls.SERIOUS_CLARIFICATION_CONFIDENCE_THRESHOLD
+        margin_threshold = cls.SERIOUS_CLARIFICATION_MARGIN_THRESHOLD
+        if cls._is_serious_respiratory_label(label):
+            confidence_threshold = cls.SERIOUS_RESPIRATORY_CONFIDENCE_THRESHOLD
+            margin_threshold = cls.SERIOUS_RESPIRATORY_MARGIN_THRESHOLD
+
+        if confidence < confidence_threshold:
+            return True
+        if candidate_margin < margin_threshold:
+            return True
+        if cls._has_sparse_supporting_signals(
+            findings=findings,
+            patient_symptoms=patient_symptoms,
+            final_diagnosis=final_diagnosis,
+        ):
+            return True
+        return False
 
     @classmethod
     def _label_matches_keywords(cls, label: str, keywords: tuple[str, ...]) -> bool:
@@ -1513,10 +1696,21 @@ class DiagnosisEngine:
                 ]
                 selected_candidates = cardiopulmonary_candidates + non_cardiopulmonary_candidates
 
+            if any(cls._is_serious_label(str(item.get("label", ""))) for item in selected_candidates[:5]):
+                selected_candidates = sorted(
+                    selected_candidates,
+                    key=lambda item: (
+                        not cls._is_serious_label(str(item.get("label", ""))),
+                        -float(item.get("confidence", 0.0)),
+                    ),
+                )
+
         candidate_labels = [candidate["label"] for candidate in selected_candidates[:3]]
         top_confidence = float(selected_candidates[0].get("confidence", 0.0)) if selected_candidates else 0.0
         second_confidence = float(selected_candidates[1].get("confidence", 0.0)) if len(selected_candidates) > 1 else 0.0
         top_margin = top_confidence - second_confidence
+        serious_candidate_present = any(cls._is_serious_label(label) for label in candidate_labels)
+        serious_respiratory_present = any(cls._is_serious_respiratory_label(label) for label in candidate_labels)
         question_budget = cls.MAX_CLARIFICATION_QUESTIONS
         if top_confidence >= 0.84 and top_margin >= 0.16:
             question_budget = 1
@@ -1524,6 +1718,10 @@ class DiagnosisEngine:
             question_budget = 2
         if any("close in score" in reason.lower() for reason in reasons):
             question_budget = max(question_budget, 2)
+        if serious_candidate_present:
+            question_budget = max(question_budget, 2)
+        if serious_respiratory_present:
+            question_budget = cls.MAX_CLARIFICATION_QUESTIONS
         question_budget = max(1, min(question_budget, cls.MAX_CLARIFICATION_QUESTIONS))
 
         if len(candidate_labels) >= 2:
@@ -2541,17 +2739,31 @@ class DiagnosisEngine:
         final_diagnosis: Optional[Dict[str, Any]] = None,
         classifier_prediction: Optional[Dict[str, Any]] = None,
         clarification: Optional[Dict[str, Any]] = None,
+        response_language: str = "en",
     ) -> str:
+        language = normalize_language(response_language)
+        arabic_mode = language == "ar"
+
         if clarification and clarification.get("needed"):
             candidate_labels = [item.get("label", "") for item in clarification.get("candidate_diseases", [])]
             if candidate_labels:
+                joined = ", ".join(candidate_labels[:3])
+                if arabic_mode:
+                    return (
+                        "ما زال التقييم الأولي غير محسوم. "
+                        f"الاحتمالات الأبرز حالياً هي: {joined}. "
+                        "الإجابة عن أسئلة المتابعة ستساعد على تحسين دقة التشخيص."
+                    )
                 return (
                     "The first-pass assessment is still uncertain. "
-                    f"Current leading possibilities are {', '.join(candidate_labels[:3])}. "
+                    f"Current leading possibilities are {joined}. "
                     "Answering the follow-up questions will help refine the diagnosis."
                 )
             return (
-                "The first-pass assessment is still uncertain. "
+                "ما زال التقييم الأولي غير مؤكد. "
+                "نحتاج إلى أسئلة متابعة قبل إصدار استنتاج تشخيصي أقوى."
+                if arabic_mode
+                else "The first-pass assessment is still uncertain. "
                 "Follow-up questions are needed before making a stronger diagnostic claim."
             )
 
@@ -2560,9 +2772,19 @@ class DiagnosisEngine:
             confidence = cls._normalize_confidence(final_diagnosis.get("confidence"))
             source = str(final_diagnosis.get("source", "ai"))
             if findings_payload:
+                if arabic_mode:
+                    return (
+                        f"يشير التقييم المدعوم بالذكاء الاصطناعي إلى {diagnosis} "
+                        f"(الثقة {confidence:.2f}، المصدر: {source}) مع إرفاق فحوصات الأمان المبنية على القواعد."
+                    )
                 return (
                     f"AI-assisted assessment suggests {diagnosis} "
                     f"(confidence {confidence:.2f}, source: {source}) with rule-based safety checks attached."
+                )
+            if arabic_mode:
+                return (
+                    f"يشير التقييم المدعوم بالذكاء الاصطناعي إلى {diagnosis} "
+                    f"(الثقة {confidence:.2f}، المصدر: {source})."
                 )
             return (
                 f"AI-assisted assessment suggests {diagnosis} "
@@ -2574,27 +2796,49 @@ class DiagnosisEngine:
                 dict.fromkeys(str(item.get("condition", "Unknown finding")) for item in findings_payload)
             )
             if any(item.get("source") == "symptom_rules" for item in findings_payload):
+                if arabic_mode:
+                    return (
+                        "لم يتم اكتشاف نتائج غير طبيعية في قواعد التحاليل المخبرية، "
+                        f"لكن قواعد الأعراض تشير إلى: {unique_conditions}."
+                    )
                 return (
                     "No abnormal lab-rule findings were detected, but symptom-based rules suggest: "
                     f"{unique_conditions}."
                 )
+            if arabic_mode:
+                return f"تم رصد {len(findings_payload)} نتائج محتملة: {unique_conditions}."
             return f"Detected {len(findings_payload)} potential findings: {unique_conditions}."
 
         if classifier_prediction:
             predicted_label = classifier_prediction.get("predicted_label", "unknown")
             confidence = float(classifier_prediction.get("confidence", 0.0))
             if confidence >= cls.CLASSIFIER_SUPPORT_THRESHOLD:
+                if arabic_mode:
+                    return (
+                        "لم ترصد قواعد التحليل نتائج غير طبيعية، "
+                        f"لكن تصنيف الذكاء الاصطناعي يشير إلى {predicted_label} "
+                        f"(الثقة {confidence:.2f})."
+                    )
                 return (
                     "Rule engine found no abnormal findings, but AI classification suggests "
                     f"{predicted_label} "
                     f"(confidence {confidence:.2f})."
                 )
 
-        return "No clinically significant findings detected."
+        return "لم يتم اكتشاف نتائج ذات دلالة سريرية مهمة." if arabic_mode else "No clinically significant findings detected."
 
     async def diagnose(self, report: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(report, dict):
             raise TypeError("report must be a dictionary")
+
+        response_language = detect_preferred_language(
+            report.get("raw_text_original"),
+            report.get("raw_text"),
+            report.get("follow_up_answers"),
+            report.get("sections"),
+            report.get("symptoms"),
+            default="en",
+        )
 
         labs = report.get("labs", {}) or {}
         symptoms = report.get("symptoms", []) or []
@@ -2621,6 +2865,7 @@ class DiagnosisEngine:
         result = {
             "findings": findings_payload,
             "disclaimer": self.DISCLAIMER,
+            "response_language": response_language,
         }
 
         combined = build_combined_text(report)
@@ -2701,6 +2946,7 @@ class DiagnosisEngine:
             final_diagnosis=final_diagnosis,
             classifier_prediction=classifier_prediction,
             clarification=clarification,
+            response_language=response_language,
         )
 
         result["decision_fusion"] = self._build_decision_fusion(
@@ -2709,10 +2955,17 @@ class DiagnosisEngine:
             classifier_prediction=classifier_prediction,
             final_diagnosis=final_diagnosis,
         )
-        result["safety"] = self._build_safety(findings_payload)
+        result["safety"] = self._build_safety(
+            findings_payload,
+            response_language=response_language,
+        )
 
         if self._response_synthesizer:
-            synthesis = await self._response_synthesizer.synthesize(report, result)
+            synthesis = await self._response_synthesizer.synthesize(
+                report,
+                result,
+                response_language=response_language,
+            )
             result["gemini_response"] = synthesis["response_text"]
             result["gemini_response_metadata"] = synthesis["metadata"]
             if synthesis.get("structured_response") is not None:

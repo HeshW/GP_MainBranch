@@ -128,6 +128,30 @@ def test_run_diagnosis_only_returns_report_and_diagnosis():
     assert result["report"] == report
     assert "diagnosis" in result
     assert "therapy" in result
+    assert result["therapy"]["metadata"]["mode"] == "disabled"
+    assert result["therapy"]["metadata"]["enabled"] is False
+
+
+def test_run_diagnosis_only_can_enable_therapy_generation(monkeypatch):
+    manager = ChatManager(enable_therapy=True)
+
+    async def stub_run_diagnosis(report):
+        return {"findings": [{"condition": "Hypertension", "severity": "moderate"}]}
+
+    class StubTherapyEngine:
+        async def generate_therapy(self, diagnosis, patient_info):
+            return {
+                "therapy_plan": "stub therapy",
+                "structured_therapy": None,
+                "metadata": {"mode": "llm", "enabled": True},
+            }
+
+    monkeypatch.setattr(manager, "run_diagnosis", stub_run_diagnosis)
+    monkeypatch.setattr(manager, "_therapy_engine", StubTherapyEngine())
+
+    result = run_async(manager.run_diagnosis_only({"raw_text": "headache", "symptoms": ["headache"], "labs": {}}))
+
+    assert result["therapy"]["metadata"]["mode"] == "llm"
 
 
 def test_run_from_symptoms_preserves_original_raw_text():
@@ -150,6 +174,23 @@ def test_run_from_symptoms_excludes_negated_symptoms():
     assert "fever" not in result["validated"]["symptoms"]
     assert "cough" not in result["validated"]["symptoms"]
     assert "fever" in result["validated"]["negated_symptoms"]
+
+
+def test_run_from_symptoms_keeps_plain_cough_when_only_qualified_cough_is_negated():
+    manager = ChatManager()
+
+    result = run_async(manager.run_from_symptoms("No productive cough, but I have cough and fever."))
+
+    assert "cough" in result["validated"]["symptoms"]
+
+
+def test_run_from_symptoms_arabic_localizes_diagnosis_summary():
+    manager = ChatManager()
+
+    result = run_async(manager.run_from_symptoms("ما عندي كحة ولا حرارة لكن عندي دوخة وتعب من يومين"))
+
+    assert result["diagnosis"]["response_language"] == "ar"
+    assert "التقييم" in result["diagnosis"]["summary"]
 
 
 def test_run_clarification_merges_follow_up_answers_and_re_diagnoses(monkeypatch):
@@ -259,11 +300,7 @@ def test_stream_chat_error_chunk_is_persisted_in_session_history(monkeypatch):
             yield "partial "
             raise RuntimeError("stream failed")
 
-    class StubTherapyEngine:
-        api_key_valid = True
-        _provider = StubProvider()
-
-    monkeypatch.setattr(manager, "_therapy_engine", StubTherapyEngine())
+    monkeypatch.setattr(manager, "_chat_provider", StubProvider())
 
     chunks = run_async(_collect_stream_chunks(manager.stream_chat("s-error", "hello")))
     expected_error = get_stream_error_message("hello")
@@ -272,3 +309,22 @@ def test_stream_chat_error_chunk_is_persisted_in_session_history(monkeypatch):
     assert chunks == ["partial ", expected_error]
     assert history[-2] == {"role": "user", "content": "hello"}
     assert history[-1] == {"role": "model", "content": f"partial {expected_error}"}
+
+
+def test_chat_remains_available_when_therapy_is_disabled(monkeypatch):
+    manager = ChatManager(gemini_api_key="local-key", enable_therapy=False)
+
+    class StubProvider:
+        async def generate_content(self, prompt, system_instruction=None):
+            return "chat ok"
+
+    class StubTherapyEngine:
+        api_key_valid = False
+        _provider = None
+
+    monkeypatch.setattr(manager, "_chat_provider", StubProvider())
+    monkeypatch.setattr(manager, "_therapy_engine", StubTherapyEngine())
+
+    out = run_async(manager.run_chat("s-chat", "hello"))
+
+    assert out["response"] == "chat ok"

@@ -15,6 +15,7 @@ class _Settings:
     clinicalbert_model_dir = "missing/clinicalbert"
     allow_unsafe_pickle_metadata = False
     gemini_api_key = ""
+    enable_therapy = False
     rag_top_k = 5
     rag_translate_arabic = True
 
@@ -42,6 +43,7 @@ def test_startup_disables_optional_ai_modules_when_assets_missing(monkeypatch):
     payload = response.json()
     assert payload["rag_enabled"] is False
     assert payload["finetuned_classifier_enabled"] is False
+    assert payload["therapy_enabled"] is False
     assert len(calls) == 1
     assert calls[0]["use_rag"] is False
     assert calls[0]["use_finetuned_classifier"] is False
@@ -71,3 +73,4 @@ def test_startup_falls_back_to_degraded_mode_if_advanced_init_fails(monkeypatch)
     assert len(calls) == 2
     assert app.state.runtime_features["rag_enabled"] is False
     assert app.state.runtime_features["finetuned_classifier_enabled"] is False
+    assert app.state.runtime_features["therapy_enabled"] is False

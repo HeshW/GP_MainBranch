@@ -17,6 +17,7 @@ from manager.chat_support import (
 )
 from manager.pipeline_support import build_manual_input_from_validated, build_report
 from manager.session_store import ChatSessionStore
+from models.common.ai_provider import GeminiProvider
 from models.diagnosis import DiagnosisEngine
 from models.therapy import TherapyEngine
 
@@ -25,6 +26,11 @@ logger = logging.getLogger(__name__)
 
 class ChatManager:
     """Public facade for the project's diagnosis pipeline and chat tools."""
+
+    THERAPY_DISABLED_MESSAGE = (
+        "Therapy generation is disabled for this deployment and will be re-enabled in a later milestone. "
+        "Please rely on diagnosis output and clinician review for now."
+    )
 
     def __init__(
         self,
@@ -35,6 +41,7 @@ class ChatManager:
         allow_unsafe_pickle_metadata: bool = False,
         gemini_api_key: Optional[str] = None,
         gemini_model_name: str = "gemini-2.5-flash-lite",
+        enable_therapy: bool = False,
         rag_top_k: int = 5,
         rag_translate_arabic: bool = True,
         use_finetuned_classifier: bool = False,
@@ -60,8 +67,47 @@ class ChatManager:
             gemini_api_key=gemini_api_key if gemini_api_key else "",
             model_name=gemini_model_name,
         )
+        self._therapy_enabled = bool(enable_therapy)
+        self._chat_provider: Optional[GeminiProvider] = None
+        if str(gemini_api_key or "").strip():
+            self._chat_provider = GeminiProvider(
+                api_key=str(gemini_api_key),
+                model_name=gemini_model_name,
+            )
         self._chat_sessions = ChatSessionStore()
         self._ocr_engine: Any | None = None
+
+    @classmethod
+    def _build_therapy_disabled_payload(
+        cls,
+        diagnosis: Dict[str, Any],
+        patient_info: str,
+    ) -> Dict[str, Any]:
+        findings = diagnosis.get("findings", []) if isinstance(diagnosis, dict) else []
+        findings_count = len(findings) if isinstance(findings, list) else 0
+        return {
+            "therapy_plan": cls.THERAPY_DISABLED_MESSAGE,
+            "structured_therapy": None,
+            "metadata": {
+                "mode": "disabled",
+                "enabled": False,
+                "provider_status": "feature_flag_disabled",
+                "findings_count": findings_count,
+                "patient_info": patient_info or "unknown",
+            },
+        }
+
+    async def _generate_therapy(
+        self,
+        diagnosis: Dict[str, Any],
+        patient_info: str,
+    ) -> Dict[str, Any]:
+        if not self._therapy_enabled:
+            return self._build_therapy_disabled_payload(diagnosis, patient_info)
+        return await self._therapy_engine.generate_therapy(
+            diagnosis,
+            patient_info,
+        )
 
     def _get_ocr_engine(self):
         if self._ocr_engine is None:
@@ -112,7 +158,7 @@ class ChatManager:
         """Run diagnosis and therapy on an already prepared report."""
         start = time.time()
         diagnosis = await self.run_diagnosis(report)
-        therapy = await self._therapy_engine.generate_therapy(
+        therapy = await self._generate_therapy(
             diagnosis,
             "Age: Unknown, Sex: Unknown",
         )
@@ -238,14 +284,14 @@ class ChatManager:
 
     async def run_chat(self, session_id: str, message: str) -> Dict[str, Any]:
         """Generate a non-streaming chat reply with lightweight session memory."""
-        if not self._therapy_engine.api_key_valid or not self._therapy_engine._provider:
+        if not self._chat_provider:
             return build_unavailable_payload(session_id, message)
 
         history = self._chat_sessions.append(session_id, "user", message)
         prompt = build_chat_prompt(history)
 
         try:
-            reply_text = await self._therapy_engine._provider.generate_content(
+            reply_text = await self._chat_provider.generate_content(
                 prompt,
                 system_instruction=SYSTEM_INSTRUCTION,
             )
@@ -268,7 +314,7 @@ class ChatManager:
         """Stream a chat response chunk by chunk."""
         history = self._chat_sessions.append(session_id, "user", message)
 
-        if not self._therapy_engine.api_key_valid or not self._therapy_engine._provider:
+        if not self._chat_provider:
             unavailable_response = build_unavailable_payload(session_id, message)["response"]
             yield unavailable_response
             self._chat_sessions.append(session_id, "model", unavailable_response)
@@ -278,7 +324,7 @@ class ChatManager:
 
         full_response: list[str] = []
         try:
-            async for chunk in self._therapy_engine._provider.generate_stream(
+            async for chunk in self._chat_provider.generate_stream(
                 prompt,
                 system_instruction=SYSTEM_INSTRUCTION,
             ):

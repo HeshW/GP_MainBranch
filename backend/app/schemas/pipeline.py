@@ -19,6 +19,7 @@ class MetaResponse(BaseModel):
     faiss_configured: bool
     finetuned_classifier_enabled: bool = False
     finetuned_model_configured: bool = False
+    therapy_enabled: bool = False
 
 
 class LabsPipelineRequest(BaseModel):

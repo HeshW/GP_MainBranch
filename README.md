@@ -53,6 +53,8 @@ Notes:
 	- Health/meta endpoints remain accessible without key for diagnostics.
 - Optional advanced AI modules are safe-off by default in `backend/.env.example` (`USE_RAG=false`, `USE_FINETUNED_CLASSIFIER=false`).
 	- If enabled but required assets are missing, backend startup degrades gracefully and keeps core endpoints available.
+- Therapy generation is feature-flagged and defaults to OFF in this milestone (`ENABLE_THERAPY=false`).
+	- Diagnosis, OCR, and chat remain enabled while therapy output returns a disabled placeholder payload.
 - RAG metadata loading is hardened by default:
 	- Prefer `metadata_mapping.json` for FAISS metadata.
 	- If using `metadata_mapping.pkl`, provide `metadata_mapping.pkl.sha256` for hash verification.

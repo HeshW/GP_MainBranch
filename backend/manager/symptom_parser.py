@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 SYMPTOM_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     ("fatigue", ("fatigue", "tired", "tiredness", "exhaustion", "تعب", "إرهاق", "إجهاد")),
     ("weakness", ("weakness", "weak", "fatigable weakness", "ضعف", "وهن")),
-    ("dizziness", ("dizziness", "dizzy", "vertigo")),
+    ("dizziness", ("dizziness", "dizzy", "vertigo", "دوخة", "دوخه")),
     ("lightheaded", ("lightheaded", "lightheadedness")),
     ("nausea", ("nausea", "nauseated", "غثيان")),
     ("vomiting", ("vomiting", "vomit", "vomiting", "قيء", "ترجيع")),
@@ -82,6 +82,7 @@ _ENCODED_SEQUENCE_PATTERN = re.compile(
     r"(?:\d+(?:\s*@\s*(?:[Vv]\s*)?\d+)?\s*,\s*){8,}\d+(?:\s*@\s*(?:[Vv]\s*)?\d+)?",
     re.IGNORECASE,
 )
+_NEGATION_SCOPE_CHARS = 80
 
 
 def _load_aliases() -> Dict[str, str]:
@@ -233,8 +234,33 @@ def _extract_symptoms(raw_text: str) -> List[Dict[str, Any]]:
         except ImportError:
             pass
 
-    negation_cues = ("no", "denies", "deny", "without", "not having", "negative for", "لا يوجد", "بدون", "ينفي", "مش")
-    negation_cues = negation_cues + ("ما في", "مافي", "ما عندي", "ليس")
+    negation_cues = (
+        "no",
+        "not",
+        "don't",
+        "do not",
+        "do not have",
+        "dont have",
+        "don't have",
+        "denies",
+        "deny",
+        "without",
+        "not having",
+        "negative for",
+        "absence of",
+        "لا يوجد",
+        "بدون",
+        "ينفي",
+        "مش",
+        "ما في",
+        "مافي",
+        "ما عندي",
+        "ليس",
+        "ليس لدي",
+        "ولا",
+        "مو",
+        "ماني",
+    )
     for canonical, aliases in SYMPTOM_PATTERNS:
         phrases = (canonical, *aliases)
         for phrase in phrases:
@@ -242,7 +268,7 @@ def _extract_symptoms(raw_text: str) -> List[Dict[str, Any]]:
             negated = False
             for cue in negation_cues:
                 pattern = re.compile(
-                    rf"\b{cue}\b[^.!,;\n]{{0,45}}\b{escaped}\b",
+                    rf"\b{cue}\b[^.!,;\n]{{0,{_NEGATION_SCOPE_CHARS}}}\b{escaped}\b",
                     re.IGNORECASE,
                 )
                 match = pattern.search(text)
@@ -254,9 +280,9 @@ def _extract_symptoms(raw_text: str) -> List[Dict[str, Any]]:
                 negated = True
                 break
             if negated and str(phrase).strip().lower() == "cough":
-                productive_only_negation = any(
+                qualified_cough_negation = any(
                     re.search(
-                        rf"\b{cue}\b[^.!,;\n]{{0,45}}\bproductive\s+cough\b",
+                        rf"\b{cue}\b[^.!,;\n]{{0,{_NEGATION_SCOPE_CHARS}}}\b(?:productive|dry)\s+cough\b",
                         text,
                         re.IGNORECASE,
                     )
@@ -264,13 +290,13 @@ def _extract_symptoms(raw_text: str) -> List[Dict[str, Any]]:
                 )
                 explicit_plain_cough_negation = any(
                     re.search(
-                        rf"\b{cue}\b[^.!,;\n]{{0,45}}\b(?<!productive\s)cough\b",
+                        rf"\b{cue}\b[^.!,;\n]{{0,{_NEGATION_SCOPE_CHARS}}}\b(?<!productive\s)(?<!dry\s)cough\b",
                         text,
                         re.IGNORECASE,
                     )
                     for cue in negation_cues
                 )
-                if productive_only_negation and not explicit_plain_cough_negation:
+                if qualified_cough_negation and not explicit_plain_cough_negation:
                     negated = False
             if negated:
                 found.append(

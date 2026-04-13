@@ -21,6 +21,7 @@ class _Settings:
     clinicalbert_model_dir = None
     allow_unsafe_pickle_metadata = False
     gemini_api_key = ""
+    enable_therapy = False
     rag_top_k = 5
     rag_translate_arabic = True
 
@@ -90,6 +91,7 @@ def test_health_and_meta_contract(monkeypatch):
     assert "api_version" in payload
     assert "rag_enabled" in payload
     assert "finetuned_classifier_enabled" in payload
+    assert "therapy_enabled" in payload
 
 
 def test_pipeline_labs_contract(monkeypatch):

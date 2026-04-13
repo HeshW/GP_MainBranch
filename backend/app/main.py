@@ -74,6 +74,7 @@ async def lifespan(app: FastAPI):
             allow_unsafe_pickle_metadata=s.allow_unsafe_pickle_metadata,
             gemini_api_key=s.gemini_api_key,
             gemini_model_name=getattr(s, "gemini_model_name", "gemini-2.5-flash-lite"),
+            enable_therapy=bool(getattr(s, "enable_therapy", False)),
             rag_top_k=s.rag_top_k,
             rag_translate_arabic=s.rag_translate_arabic,
             use_finetuned_classifier=use_classifier,
@@ -93,6 +94,7 @@ async def lifespan(app: FastAPI):
             allow_unsafe_pickle_metadata=s.allow_unsafe_pickle_metadata,
             gemini_api_key=s.gemini_api_key,
             gemini_model_name=getattr(s, "gemini_model_name", "gemini-2.5-flash-lite"),
+            enable_therapy=bool(getattr(s, "enable_therapy", False)),
             rag_top_k=s.rag_top_k,
             rag_translate_arabic=s.rag_translate_arabic,
             use_finetuned_classifier=False,
@@ -106,6 +108,7 @@ async def lifespan(app: FastAPI):
     app.state.runtime_features = {
         "rag_enabled": use_rag,
         "finetuned_classifier_enabled": use_classifier,
+        "therapy_enabled": bool(getattr(s, "enable_therapy", False)),
     }
     yield
 
