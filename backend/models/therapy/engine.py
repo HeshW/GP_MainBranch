@@ -5,7 +5,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from app.schemas.ai import AITherapyPlanResponse
-from models.common.ai_provider import GeminiProvider
+from models.common.provider_factory import create_model_provider
 
 logger = logging.getLogger(__name__)
 
@@ -23,15 +23,34 @@ FALLBACK_MESSAGE = (
 class TherapyEngine:
     """Generate a structured therapy plan from diagnosis findings."""
 
-    def __init__(self, gemini_api_key: str, model_name: str = "gemini-2.5-flash-lite") -> None:
-        self.api_key_valid = bool(str(gemini_api_key or "").strip())
-        self._provider: Optional[GeminiProvider] = None
+    def __init__(
+        self,
+        gemini_api_key: str,
+        gemini_model_name: str = "gemini-2.5-flash-lite",
+        *,
+        llm_provider: str = "gemini",
+        llm_api_key: Optional[str] = None,
+        llm_model_name: Optional[str] = None,
+        openrouter_base_url: str = "https://openrouter.ai/api/v1",
+        openrouter_site_url: Optional[str] = None,
+        openrouter_app_name: str = "GP Medical Analysis",
+    ) -> None:
+        self.provider_name, self._provider, self.model_name = create_model_provider(
+            llm_provider=llm_provider,
+            llm_api_key=llm_api_key,
+            llm_model_name=llm_model_name,
+            gemini_api_key=gemini_api_key,
+            gemini_model_name=gemini_model_name,
+            openrouter_base_url=openrouter_base_url,
+            openrouter_site_url=openrouter_site_url,
+            openrouter_app_name=openrouter_app_name,
+        )
+        self.api_key_valid = self._provider is not None
 
-        if self.api_key_valid:
-            self._provider = GeminiProvider(api_key=gemini_api_key, model_name=model_name)
-        else:
+        if not self.api_key_valid:
             logger.warning(
-                "Missing GEMINI_API_KEY. TherapyEngine will operate in fallback mode."
+                "Missing LLM_API_KEY for provider '%s'. TherapyEngine will operate in fallback mode.",
+                self.provider_name,
             )
 
     @staticmethod

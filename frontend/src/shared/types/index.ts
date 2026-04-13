@@ -93,10 +93,23 @@ export interface AnalysisResponse {
         sources?: string[];
       }>;
     };
+    ai_response?: string;
+    ai_response_metadata?: {
+      mode?: string;
+      final_diagnosis?: string;
+      provider_status?: string;
+      response_language?: string;
+      provider_name?: string;
+      model_name?: string;
+    };
     gemini_response?: string;
     gemini_response_metadata?: {
       mode?: string;
       final_diagnosis?: string;
+      provider_status?: string;
+      response_language?: string;
+      provider_name?: string;
+      model_name?: string;
     };
     summary?: string;
     decision_fusion?: {

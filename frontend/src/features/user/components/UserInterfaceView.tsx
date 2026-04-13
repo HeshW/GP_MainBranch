@@ -329,7 +329,7 @@ export function UserInterfaceView({
   const renderAnalysisCard = (analysis: AnalysisResponse) => {
     const diagnosis = analysis.diagnosis?.final_diagnosis;
     const summary = analysis.diagnosis?.summary;
-    const gemini = analysis.diagnosis?.gemini_response;
+    const aiResponse = analysis.diagnosis?.ai_response ?? analysis.diagnosis?.gemini_response;
     const therapy = analysis.therapy?.therapy_plan;
     const safetyReasons = analysis.diagnosis?.safety?.reasons ?? [];
     const clarification = analysis.diagnosis?.clarification;
@@ -345,7 +345,7 @@ export function UserInterfaceView({
         </header>
 
         {summary && <p className="chat-first-card__body">{summary}</p>}
-        {gemini && <p className="chat-first-card__body">{gemini}</p>}
+        {aiResponse && <p className="chat-first-card__body">{aiResponse}</p>}
         {therapy && <p className="chat-first-card__body">Therapy: {therapy}</p>}
 
         {!!safetyReasons.length && (

@@ -18,12 +18,12 @@ SYSTEM_INSTRUCTION = (
 )
 
 UNAVAILABLE_MESSAGE_EN = (
-    "Chat service is currently unavailable because GEMINI_API_KEY is missing or invalid. "
-    "Please configure the key and try again."
+    "Chat service is currently unavailable because the configured LLM API key is missing or invalid. "
+    "Please configure LLM_API_KEY and try again."
 )
 
 UNAVAILABLE_MESSAGE_AR = (
-    "خدمة الدردشة غير متاحة حاليا لأن GEMINI_API_KEY غير مضبوط أو غير صالح. "
+    "خدمة الدردشة غير متاحة حاليا لأن مفتاح مزود الذكاء الاصطناعي غير مضبوط أو غير صالح. "
     "يرجى ضبط المفتاح ثم إعادة المحاولة."
 )
 

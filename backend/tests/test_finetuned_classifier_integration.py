@@ -74,12 +74,15 @@ def test_finetuned_classifier_translates_arabic_before_prediction(monkeypatch):
             return "fever and cough"
 
     class StubProvider:
-        def __init__(self, api_key, model_name="gemini-2.5-flash"):
-            pass
+        pass
 
     monkeypatch.setattr(diagnosisengine, "FineTunedDiagnosisClassifier", StubClassifier)
     monkeypatch.setattr(diagnosisengine, "ArabicToEnglishTranslator", StubTranslator)
-    monkeypatch.setattr(diagnosisengine, "GeminiProvider", StubProvider)
+    monkeypatch.setattr(
+        diagnosisengine,
+        "create_model_provider",
+        lambda **kwargs: ("gemini", StubProvider(), "gemini-2.5-flash"),
+    )
 
     engine = diagnosisengine.DiagnosisEngine(
         use_finetuned_classifier=True,

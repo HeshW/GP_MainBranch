@@ -8,8 +8,8 @@ from typing import Any, Dict, Optional
 
 import logging
 
-from models.common.ai_provider import GeminiProvider
 from models.common.language import detect_preferred_language, normalize_language
+from models.common.provider_factory import create_model_provider
 from .rag import (
     ArabicToEnglishTranslator,
     ClinicalBERTEmbedder,
@@ -420,6 +420,12 @@ class DiagnosisEngine:
         faiss_index_dir: Optional[Path | str] = None,
         clinicalbert_model_dir: Optional[Path | str] = None,
         allow_unsafe_pickle_metadata: bool = False,
+        llm_provider: str = "gemini",
+        llm_api_key: Optional[str] = None,
+        llm_model_name: Optional[str] = None,
+        openrouter_base_url: str = "https://openrouter.ai/api/v1",
+        openrouter_site_url: Optional[str] = None,
+        openrouter_app_name: str = "GP Medical Analysis",
         gemini_api_key: Optional[str] = None,
         gemini_model_name: str = "gemini-2.5-flash-lite",
         rag_top_k: int = 5,
@@ -446,8 +452,14 @@ class DiagnosisEngine:
                     allow_unsafe_pickle=allow_unsafe_pickle_metadata,
                 ),
                 translate_arabic=rag_translate_arabic,
+                llm_provider=llm_provider,
+                llm_api_key=llm_api_key,
+                llm_model_name=llm_model_name,
+                openrouter_base_url=openrouter_base_url,
+                openrouter_site_url=openrouter_site_url,
+                openrouter_app_name=openrouter_app_name,
                 gemini_api_key=gemini_api_key,
-                model_name=gemini_model_name,
+                gemini_model_name=gemini_model_name,
             )
 
         if use_finetuned_classifier:
@@ -457,19 +469,45 @@ class DiagnosisEngine:
                 model_dir=finetuned_model_dir,
                 max_length=classifier_max_length,
             )
-            if classifier_translate_arabic and gemini_api_key:
+            _, translator_provider, _ = create_model_provider(
+                llm_provider=llm_provider,
+                llm_api_key=llm_api_key,
+                llm_model_name=llm_model_name,
+                gemini_api_key=gemini_api_key,
+                gemini_model_name=gemini_model_name,
+                openrouter_base_url=openrouter_base_url,
+                openrouter_site_url=openrouter_site_url,
+                openrouter_app_name=openrouter_app_name,
+            )
+            if classifier_translate_arabic and translator_provider:
                 self._classifier_translator = ArabicToEnglishTranslator(
-                    GeminiProvider(api_key=gemini_api_key, model_name=gemini_model_name)
+                    translator_provider
                 )
-            elif classifier_translate_arabic and not gemini_api_key:
+            elif classifier_translate_arabic:
                 logger.warning(
-                    "classifier_translate_arabic=True but GEMINI_API_KEY is missing; classifier will use raw input text."
+                    "classifier_translate_arabic=True but no LLM API key is configured; classifier will use raw input text."
                 )
 
-        if gemini_api_key:
+        _, synthesis_provider, _ = create_model_provider(
+            llm_provider=llm_provider,
+            llm_api_key=llm_api_key,
+            llm_model_name=llm_model_name,
+            gemini_api_key=gemini_api_key,
+            gemini_model_name=gemini_model_name,
+            openrouter_base_url=openrouter_base_url,
+            openrouter_site_url=openrouter_site_url,
+            openrouter_app_name=openrouter_app_name,
+        )
+        if synthesis_provider:
             self._response_synthesizer = DiagnosisResponseSynthesizer(
+                llm_provider=llm_provider,
+                llm_api_key=llm_api_key,
+                llm_model_name=llm_model_name,
+                openrouter_base_url=openrouter_base_url,
+                openrouter_site_url=openrouter_site_url,
+                openrouter_app_name=openrouter_app_name,
                 gemini_api_key=gemini_api_key,
-                model_name=gemini_model_name,
+                gemini_model_name=gemini_model_name,
             )
 
     @staticmethod
@@ -2966,9 +3004,12 @@ class DiagnosisEngine:
                 result,
                 response_language=response_language,
             )
+            result["ai_response"] = synthesis["response_text"]
+            result["ai_response_metadata"] = synthesis["metadata"]
             result["gemini_response"] = synthesis["response_text"]
             result["gemini_response_metadata"] = synthesis["metadata"]
             if synthesis.get("structured_response") is not None:
+                result["structured_ai_response"] = synthesis["structured_response"]
                 result["structured_gemini_response"] = synthesis["structured_response"]
 
         return result

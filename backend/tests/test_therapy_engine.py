@@ -37,9 +37,6 @@ def test_therapy_engine_returns_no_findings_payload():
 
 def test_therapy_engine_accepts_non_ai_prefix_key(monkeypatch):
     class StubProvider:
-        def __init__(self, api_key, model_name):
-            self.api_key = api_key
-
         async def generate_content(self, prompt, system_instruction=None, response_model=None):
             return (
                 '{"clinical_analysis":"stable","recommendations":[{"category":"Lifestyle",'
@@ -47,7 +44,10 @@ def test_therapy_engine_accepts_non_ai_prefix_key(monkeypatch):
                 '"emergency_signs":["Chest pain"],"disclaimer":"Consult clinician."}'
             )
 
-    monkeypatch.setattr("models.therapy.engine.GeminiProvider", StubProvider)
+    monkeypatch.setattr(
+        "models.therapy.engine.create_model_provider",
+        lambda **kwargs: ("gemini", StubProvider(), "gemini-2.5-flash-lite"),
+    )
 
     engine = TherapyEngine("seminar-local-key")
     result = run_async(
@@ -74,13 +74,13 @@ def test_therapy_engine_accepts_non_ai_prefix_key(monkeypatch):
 
 def test_therapy_engine_exposes_provider_error_status(monkeypatch):
     class StubProvider:
-        def __init__(self, api_key, model_name):
-            pass
-
         async def generate_content(self, prompt, system_instruction=None, response_model=None):
             raise RuntimeError("401 unauthorized")
 
-    monkeypatch.setattr("models.therapy.engine.GeminiProvider", StubProvider)
+    monkeypatch.setattr(
+        "models.therapy.engine.create_model_provider",
+        lambda **kwargs: ("gemini", StubProvider(), "gemini-2.5-flash-lite"),
+    )
 
     engine = TherapyEngine("seminar-local-key")
     result = run_async(

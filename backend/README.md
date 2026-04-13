@@ -16,6 +16,22 @@ uvicorn app.main:app --reload --app-dir backend --host 0.0.0.0 --port 8000
 
 Open `http://127.0.0.1:8000/api/docs` for Swagger UI.
 
+## LLM Provider Configuration
+
+The backend supports provider selection using environment variables:
+
+- `LLM_PROVIDER=gemini|openrouter`
+- `LLM_API_KEY=...`
+- `LLM_MODEL_NAME=...`
+
+OpenRouter-specific optional fields:
+
+- `OPENROUTER_BASE_URL=https://openrouter.ai/api/v1`
+- `OPENROUTER_SITE_URL=...`
+- `OPENROUTER_APP_NAME=GP Medical Analysis`
+
+Legacy `GEMINI_API_KEY` and `GEMINI_MODEL_NAME` remain supported for backward compatibility.
+
 ## Endpoints
 
 | Method | Path | Description |

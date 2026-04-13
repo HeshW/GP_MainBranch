@@ -9,7 +9,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from models.common.ai_provider import GeminiProvider
+from models.common.ai_provider import BaseModelProvider
+from models.common.provider_factory import create_model_provider
 
 logger = logging.getLogger(__name__)
 
@@ -475,7 +476,7 @@ class MedicalCaseSearcher:
 
 
 class ArabicToEnglishTranslator:
-    def __init__(self, provider: GeminiProvider) -> None:
+    def __init__(self, provider: BaseModelProvider) -> None:
         self._provider = provider
 
     @staticmethod
@@ -596,13 +597,28 @@ class MedicalRAGAssistant:
         searcher: MedicalCaseSearcher,
         *,
         translate_arabic: bool = True,
+        llm_provider: str = "gemini",
+        llm_api_key: Optional[str] = None,
+        llm_model_name: Optional[str] = None,
+        openrouter_base_url: str = "https://openrouter.ai/api/v1",
+        openrouter_site_url: Optional[str] = None,
+        openrouter_app_name: str = "GP Medical Analysis",
         gemini_api_key: Optional[str] = None,
-        model_name: str = "gemini-2.5-flash-lite",
+        gemini_model_name: str = "gemini-2.5-flash-lite",
     ) -> None:
         self.embedder = embedder
         self.searcher = searcher
         self._translate_arabic = translate_arabic
-        self._provider = GeminiProvider(api_key=gemini_api_key, model_name=model_name) if gemini_api_key else None
+        _, self._provider, _ = create_model_provider(
+            llm_provider=llm_provider,
+            llm_api_key=llm_api_key,
+            llm_model_name=llm_model_name,
+            gemini_api_key=gemini_api_key,
+            gemini_model_name=gemini_model_name,
+            openrouter_base_url=openrouter_base_url,
+            openrouter_site_url=openrouter_site_url,
+            openrouter_app_name=openrouter_app_name,
+        )
         self._translator = ArabicToEnglishTranslator(self._provider) if self._provider else None
 
     @staticmethod
@@ -618,7 +634,7 @@ class MedicalRAGAssistant:
             sorted({str(case.get("pathology", "unknown")) for case in retrieved_cases[:3]})
         )
         return (
-            "RAG retrieval completed, but the Gemini summary is currently unavailable. "
+            "RAG retrieval completed, but the AI summary is currently unavailable. "
             f"The most similar case suggests {top_case.get('pathology', 'an unknown condition')}. "
             f"Top retrieved conditions: {related_conditions}."
         )

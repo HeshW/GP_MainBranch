@@ -17,7 +17,7 @@ def test_detect_response_language_arabic():
 
 def test_build_unavailable_payload_english_message():
     payload = build_unavailable_payload("s1", "Can you explain this result?")
-    assert "GEMINI_API_KEY" in payload["response"]
+    assert "LLM_API_KEY" in payload["response"]
     assert "unavailable" in payload["response"].lower()
 
 

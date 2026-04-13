@@ -24,8 +24,8 @@ export function ResultView({ error, result, onClarify }: ResultViewProps) {
   const retrievedCases = result?.diagnosis?.retrieved_cases ?? [];
   const clarification = result?.diagnosis?.clarification;
   const diagnosticCandidates = result?.diagnosis?.diagnostic_candidates ?? [];
-  const geminiResponse = result?.diagnosis?.gemini_response;
-  const geminiMeta = result?.diagnosis?.gemini_response_metadata;
+  const aiResponse = result?.diagnosis?.ai_response ?? result?.diagnosis?.gemini_response;
+  const aiMeta = result?.diagnosis?.ai_response_metadata ?? result?.diagnosis?.gemini_response_metadata;
   const therapy = result?.therapy;
   const clarificationQuestions = clarification?.questions ?? [];
   const clarificationReady = Boolean(
@@ -174,13 +174,16 @@ export function ResultView({ error, result, onClarify }: ResultViewProps) {
             </section>
           )}
 
-          {(geminiResponse || geminiMeta) && (
+          {(aiResponse || aiMeta) && (
             <section className="result-card">
-              <h3>Gemini Clinical Response</h3>
+              <h3>AI Clinical Response</h3>
               <p className="result-card__meta">
-                Mode: {geminiMeta?.mode ?? "unknown"}
+                Provider: {aiMeta?.provider_name ?? "unknown"}
+                {aiMeta?.model_name ? ` (${aiMeta.model_name})` : ""}
+                {" | "}Mode: {aiMeta?.mode ?? "unknown"}
+                {aiMeta?.provider_status ? ` | Status: ${aiMeta.provider_status}` : ""}
               </p>
-              <p>{geminiResponse ?? "No Gemini response available."}</p>
+              <p>{aiResponse ?? "No AI response available."}</p>
             </section>
           )}
 

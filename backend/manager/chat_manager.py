@@ -17,7 +17,7 @@ from manager.chat_support import (
 )
 from manager.pipeline_support import build_manual_input_from_validated, build_report
 from manager.session_store import ChatSessionStore
-from models.common.ai_provider import GeminiProvider
+from models.common.provider_factory import create_model_provider
 from models.diagnosis import DiagnosisEngine
 from models.therapy import TherapyEngine
 
@@ -39,6 +39,12 @@ class ChatManager:
         faiss_index_dir: Optional[Path | str] = None,
         clinicalbert_model_dir: Optional[Path | str] = None,
         allow_unsafe_pickle_metadata: bool = False,
+        llm_provider: str = "gemini",
+        llm_api_key: Optional[str] = None,
+        llm_model_name: Optional[str] = None,
+        openrouter_base_url: str = "https://openrouter.ai/api/v1",
+        openrouter_site_url: Optional[str] = None,
+        openrouter_app_name: str = "GP Medical Analysis",
         gemini_api_key: Optional[str] = None,
         gemini_model_name: str = "gemini-2.5-flash-lite",
         enable_therapy: bool = False,
@@ -54,6 +60,12 @@ class ChatManager:
             faiss_index_dir=faiss_index_dir,
             clinicalbert_model_dir=clinicalbert_model_dir,
             allow_unsafe_pickle_metadata=allow_unsafe_pickle_metadata,
+            llm_provider=llm_provider,
+            llm_api_key=llm_api_key,
+            llm_model_name=llm_model_name,
+            openrouter_base_url=openrouter_base_url,
+            openrouter_site_url=openrouter_site_url,
+            openrouter_app_name=openrouter_app_name,
             gemini_api_key=gemini_api_key,
             gemini_model_name=gemini_model_name,
             rag_top_k=rag_top_k,
@@ -64,16 +76,26 @@ class ChatManager:
             classifier_translate_arabic=classifier_translate_arabic,
         )
         self._therapy_engine = TherapyEngine(
+            llm_provider=llm_provider,
+            llm_api_key=llm_api_key,
+            llm_model_name=llm_model_name,
+            openrouter_base_url=openrouter_base_url,
+            openrouter_site_url=openrouter_site_url,
+            openrouter_app_name=openrouter_app_name,
             gemini_api_key=gemini_api_key if gemini_api_key else "",
-            model_name=gemini_model_name,
+            gemini_model_name=gemini_model_name,
         )
         self._therapy_enabled = bool(enable_therapy)
-        self._chat_provider: Optional[GeminiProvider] = None
-        if str(gemini_api_key or "").strip():
-            self._chat_provider = GeminiProvider(
-                api_key=str(gemini_api_key),
-                model_name=gemini_model_name,
-            )
+        self._chat_provider_name, self._chat_provider, self._chat_model_name = create_model_provider(
+            llm_provider=llm_provider,
+            llm_api_key=llm_api_key,
+            llm_model_name=llm_model_name,
+            gemini_api_key=gemini_api_key,
+            gemini_model_name=gemini_model_name,
+            openrouter_base_url=openrouter_base_url,
+            openrouter_site_url=openrouter_site_url,
+            openrouter_app_name=openrouter_app_name,
+        )
         self._chat_sessions = ChatSessionStore()
         self._ocr_engine: Any | None = None
 

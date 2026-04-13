@@ -5,8 +5,8 @@ import logging
 from typing import Any, Dict, Optional
 
 from app.schemas.ai import AIClinicalResponse
-from models.common.ai_provider import GeminiProvider
 from models.common.language import detect_preferred_language, normalize_language
+from models.common.provider_factory import create_model_provider
 
 logger = logging.getLogger(__name__)
 
@@ -14,15 +14,34 @@ logger = logging.getLogger(__name__)
 class DiagnosisResponseSynthesizer:
     """Generate a final patient-facing medical response after diagnosis fusion."""
 
-    def __init__(self, gemini_api_key: str, model_name: str = "gemini-2.5-flash-lite") -> None:
-        self.api_key_valid = bool(str(gemini_api_key or "").strip())
-        self._provider: Optional[GeminiProvider] = None
+    def __init__(
+        self,
+        gemini_api_key: str,
+        gemini_model_name: str = "gemini-2.5-flash-lite",
+        *,
+        llm_provider: str = "gemini",
+        llm_api_key: Optional[str] = None,
+        llm_model_name: Optional[str] = None,
+        openrouter_base_url: str = "https://openrouter.ai/api/v1",
+        openrouter_site_url: Optional[str] = None,
+        openrouter_app_name: str = "GP Medical Analysis",
+    ) -> None:
+        self.provider_name, self._provider, self.model_name = create_model_provider(
+            llm_provider=llm_provider,
+            llm_api_key=llm_api_key,
+            llm_model_name=llm_model_name,
+            gemini_api_key=gemini_api_key,
+            gemini_model_name=gemini_model_name,
+            openrouter_base_url=openrouter_base_url,
+            openrouter_site_url=openrouter_site_url,
+            openrouter_app_name=openrouter_app_name,
+        )
+        self.api_key_valid = self._provider is not None
 
-        if self.api_key_valid:
-            self._provider = GeminiProvider(api_key=gemini_api_key, model_name=model_name)
-        else:
+        if not self.api_key_valid:
             logger.warning(
-                "Missing GEMINI_API_KEY. DiagnosisResponseSynthesizer will operate in fallback mode."
+                "Missing LLM_API_KEY for provider '%s'. DiagnosisResponseSynthesizer will operate in fallback mode.",
+                self.provider_name,
             )
 
     @staticmethod
@@ -37,7 +56,125 @@ class DiagnosisResponseSynthesizer:
         return "provider_unavailable"
 
     @staticmethod
+    def _as_text_list(value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str) and value.strip():
+            return [value.strip()]
+        return []
+
+    @staticmethod
+    def _first_text(*values: Any) -> str:
+        for value in values:
+            if isinstance(value, str):
+                stripped = value.strip()
+                if stripped:
+                    return stripped
+        return ""
+
+    @classmethod
+    def _normalize_structured_response(
+        cls,
+        parsed_payload: Any,
+        diagnosis: Dict[str, Any],
+        *,
+        response_language: str,
+    ) -> Dict[str, Any]:
+        if not isinstance(parsed_payload, dict):
+            raise ValueError("Synthesis provider returned a non-object JSON payload")
+
+        language = normalize_language(response_language)
+        arabic_mode = language == "ar"
+
+        # Common OpenRouter fallback shape observed in production:
+        # {"patient_explanation": {...}, "clinician_review_status": {...}}
+        patient_explanation = parsed_payload.get("patient_explanation")
+        if not isinstance(patient_explanation, dict):
+            patient_explanation = {}
+
+        clinician_review = parsed_payload.get("clinician_review_status")
+        if not isinstance(clinician_review, dict):
+            clinician_review = {}
+
+        diagnosis_summary = cls._first_text(
+            parsed_payload.get("diagnosis_summary"),
+            parsed_payload.get("summary"),
+            patient_explanation.get("summary"),
+            diagnosis.get("summary"),
+        )
+
+        patient_explanation_text = cls._first_text(
+            parsed_payload.get("patient_friendly_explanation"),
+            parsed_payload.get("explanation"),
+            patient_explanation.get("uncertainty"),
+            patient_explanation.get("summary"),
+            diagnosis.get("summary"),
+        )
+
+        recommended_next_steps = cls._as_text_list(parsed_payload.get("recommended_next_steps"))
+        if not recommended_next_steps:
+            recommended_next_steps = cls._as_text_list(parsed_payload.get("next_steps"))
+        if not recommended_next_steps:
+            recommended_next_steps = cls._as_text_list(patient_explanation.get("next_steps"))
+
+        red_flags = cls._as_text_list(parsed_payload.get("red_flags"))
+        if not red_flags:
+            red_flags = cls._as_text_list(parsed_payload.get("emergency_signs"))
+        if not red_flags:
+            red_flags = cls._as_text_list(clinician_review.get("emergency_recommendation"))
+        if not red_flags:
+            safety = diagnosis.get("safety") if isinstance(diagnosis, dict) else {}
+            red_flags = cls._as_text_list((safety or {}).get("reasons"))
+
+        default_disclaimer = (
+            "هذه المعلومات لغرض الدعم الإكلينيكي الأولي فقط ولا تغني عن تقييم الطبيب المختص."
+            if arabic_mode
+            else "This information is for preliminary clinical decision support only and does not replace clinician evaluation."
+        )
+        disclaimer = cls._first_text(
+            parsed_payload.get("disclaimer"),
+            parsed_payload.get("safety_disclaimer"),
+            default_disclaimer,
+        )
+
+        if not diagnosis_summary:
+            diagnosis_summary = (
+                "التقييم الأولي يشير إلى ضرورة مراجعة الطبيب لتأكيد التشخيص."
+                if arabic_mode
+                else "Preliminary assessment indicates clinician review is needed to confirm the diagnosis."
+            )
+        if not patient_explanation_text:
+            patient_explanation_text = (
+                "توجد درجة من عدم اليقين، ويلزم تقييم سريري مباشر لتأكيد الحالة."
+                if arabic_mode
+                else "There is residual uncertainty, and direct clinical evaluation is required for confirmation."
+            )
+        if not recommended_next_steps:
+            recommended_next_steps = [
+                "Arrange clinician follow-up for confirmation and management."
+                if not arabic_mode
+                else "يُرجى ترتيب متابعة مع الطبيب لتأكيد التشخيص ووضع الخطة العلاجية."
+            ]
+        if not red_flags:
+            red_flags = [
+                "Worsening chest pain, breathing difficulty, or fainting requires urgent care."
+                if not arabic_mode
+                else "تفاقم ألم الصدر أو صعوبة التنفس أو الإغماء يستدعي رعاية طبية عاجلة."
+            ]
+
+        validated = AIClinicalResponse.model_validate(
+            {
+                "diagnosis_summary": diagnosis_summary,
+                "patient_friendly_explanation": patient_explanation_text,
+                "recommended_next_steps": recommended_next_steps,
+                "red_flags": red_flags,
+                "disclaimer": disclaimer,
+            }
+        )
+        return validated.model_dump()
+
     def _fallback_payload(
+        self,
         diagnosis: Dict[str, Any],
         *,
         provider_status: str,
@@ -72,6 +209,8 @@ class DiagnosisResponseSynthesizer:
                 "final_diagnosis": label,
                 "provider_status": provider_status,
                 "response_language": language,
+                "provider_name": self.provider_name,
+                "model_name": self.model_name,
             },
         }
 
@@ -164,7 +303,11 @@ class DiagnosisResponseSynthesizer:
                 system_instruction=system_instruction,
                 response_model=AIClinicalResponse,
             )
-            structured = json.loads(response_json)
+            structured = self._normalize_structured_response(
+                json.loads(response_json),
+                diagnosis,
+                response_language=selected_language,
+            )
             next_steps_header = "الخطوات التالية الموصى بها:" if arabic_mode else "Recommended next steps:"
             red_flags_header = "علامات الخطر:" if arabic_mode else "Red flags:"
             response_text = (
@@ -183,6 +326,8 @@ class DiagnosisResponseSynthesizer:
                     "mode": "llm",
                     "final_diagnosis": (diagnosis.get("final_diagnosis") or {}).get("diagnosis"),
                     "response_language": selected_language,
+                    "provider_name": self.provider_name,
+                    "model_name": self.model_name,
                 },
             }
         except Exception as exc:
