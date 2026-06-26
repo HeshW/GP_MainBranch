@@ -1,5 +1,6 @@
 import pytest
 
+from manager import manager_tester
 from manager.chat_support import get_stream_error_message, get_unavailable_message
 from manager.chat_manager import ChatManager
 from manager.runtime import run_async
@@ -83,6 +84,24 @@ def test_run_from_labs_via_adapter():
     assert result["diagnosis"]["findings"]
 
 
+def test_manager_tester_run_once_from_labs():
+    result = manager_tester.run_once(labs={"glucose": 150.0})
+    assert result["status"] == "ok"
+    assert result["diagnosis"]["findings"]
+
+
+def test_manager_tester_parse_labs_from_json():
+    labs = manager_tester.parse_labs('{"glucose": 120}', None)
+    assert labs["glucose"] == 120
+
+
+def test_manager_tester_parse_labs_from_file(tmp_path):
+    file_path = tmp_path / "labs.json"
+    file_path.write_text('{"hemoglobin": 11.2}')
+    labs = manager_tester.parse_labs(None, str(file_path))
+    assert labs["hemoglobin"] == 11.2
+
+
 def test_run_from_image_via_adapter(monkeypatch):
     from manager.diagnosis_adapter import run_from_image
 
@@ -163,6 +182,33 @@ def test_run_from_symptoms_preserves_original_raw_text():
     assert "Patient-reported complaint" in result["validated"]["raw_text"]
     assert "Duration: for two weeks" in result["validated"]["raw_text"]
     assert result["normalized_text"] == result["validated"]["raw_text"]
+
+
+def test_run_from_symptoms_integration_with_manager(monkeypatch):
+    manager = ChatManager()
+
+    sample_diagnosis = {
+        "findings": [{"condition": "Test condition", "confidence": "high"}],
+        "summary": "Test summary",
+    }
+
+    class StubDiagnosisEngine:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def diagnose(self, report):
+            assert report["labs"]["glucose"] == 150.0
+            assert "fatigue" in report.get("raw_text", "")
+            return sample_diagnosis
+
+    monkeypatch.setattr(manager, "_diagnosis_engine", StubDiagnosisEngine())
+    result = run_async(manager.run_from_symptoms("Patient has fatigue and glucose 150 mg/dL"))
+
+    assert result["status"] == "ok"
+    assert result["diagnosis"] == sample_diagnosis
+    assert result["review_required"] is False or isinstance(result["review_required"], bool)
+    assert result["parsed"]["labs"]["glucose"]["value"] == 150.0
+    assert "fatigue" in result["validated"]["symptoms"]
 
 
 def test_run_from_symptoms_excludes_negated_symptoms():

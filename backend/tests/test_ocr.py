@@ -12,6 +12,7 @@ import json
 import numpy as np
 import pytest
 
+import models.ocr.engine as engine_mod
 from models.ocr.engine import extract_from_text, _normalise_text, _parse_labs, _to_rgb_array, _ensure_hwc3_uint8
 from models.ocr.patterns import LAB_PATTERNS, SYNONYM_MAP
 
@@ -33,6 +34,11 @@ class TestPatterns:
         core = {"glucose", "hemoglobin", "iron"}
         missing = core - set(LAB_PATTERNS)
         assert not missing, f"Missing canonical keys: {missing}"
+
+    def test_synonyms_file_aliases_are_loaded(self):
+        assert SYNONYM_MAP.get("hgb") == "hemoglobin"
+        assert SYNONYM_MAP.get("plt") == "platelets"
+        assert SYNONYM_MAP.get("creatinine") == "creatinine"
 
 
 # ---------------------------------------------------------------------------

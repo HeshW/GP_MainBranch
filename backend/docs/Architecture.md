@@ -1,46 +1,75 @@
-# توثيق البنية التقنية للمشروع (Technical Architecture)
+# Backend Architecture
 
-هذا المستند يشرح الهيكل البنائي للمشروع وكيفية عمل المكونات المختلفة معاً لتقديم تجربة فحص طبي ذكية.
+This backend is a FastAPI service around a hybrid medical analysis pipeline. It supports
+manual labs, report-image OCR, free-text symptoms, diagnosis fusion, clarification,
+therapy placeholders, and chat.
 
-## 1. نظرة عامة على النظام (System Overview)
-يعتمد المشروع على بنية **Client-Server Architecture**، حيث يتم الفصل تماماً بين واجهة المستخدم والمنطق البرمجي للخادم لضمان القابلية للتوسع (Scalability).
+## Main Runtime Flow
 
-### المكونات الأساسية:
-- **Frontend (React)**: واجهة المستخدم مبنية باستخدام React و TypeScript وتنسيقات CSS مخصصة (بدون TailwindCSS) لضمان سرعة الاستجابة وسهولة الصيانة.
-- **Backend (FastAPI)**: خادم عالي الأداء مبني بلغة Python، تم اختياره لدعمه الأصيل للعمليات غير المتزامنة (Asynchronous) وسهولة التعامل مع نماذج الذكاء الاصطناعي.
-- **AI Models**: محرك ذكاء اصطناعي هجين يجمع بين القواعد الطبية الصارمة (Rule-based) والذكاء التوليدي (Gemini LLM).
+```text
+Frontend / API client
+ -> FastAPI routers in app/routers
+ -> ChatManager orchestration
+ -> report preparation
+    -> OCR path: models/ocr/OCREngine
+    -> symptom path: parser -> validator -> normalizer
+    -> labs path: direct structured labs
+ -> DiagnosisEngine
+    -> lab rules and symptom rules
+    -> optional RAG retrieval
+    -> optional fine-tuned classifier
+    -> candidate collection and reranking
+    -> clarification planning when evidence is weak or conflicting
+    -> safety metadata and patient-facing synthesis
+ -> optional TherapyEngine response
+ -> API response
+```
 
----
+## Key Components
 
-## 2. تدفق البيانات (Data Workflow)
+- `app/main.py`: FastAPI application factory, startup guardrails, middleware, and router registration.
+- `app/routers/pipeline.py`: HTTP endpoints for labs, image OCR, symptoms, diagnosis-only, and clarification.
+- `app/routers/chat.py`: non-streaming and SSE chat endpoints.
+- `manager/chat_manager.py`: public facade coordinating OCR, diagnosis, therapy, and chat.
+- `manager/symptom_parser.py`: extracts symptom/lab mentions, negation, duration, and context from free text.
+- `manager/symptom_validator.py`: canonicalizes parsed symptoms/labs and marks review-required cases.
+- `manager/symptom_normalizer.py`: builds diagnosis-ready natural text from parsed evidence.
+- `models/ocr/*`: PaddleOCR integration plus regex parsing for labs, fields, sections, and raw OCR confidence.
+- `models/diagnosis/rules.py`: deterministic lab and symptom rules.
+- `models/diagnosis/diagnosisengine.py`: diagnosis fusion, candidate generation, reranking, clarification, safety, and summary.
+- `models/diagnosis/rag.py`: optional ClinicalBERT/FAISS retrieval and fine-tuned classifier helpers.
+- `models/diagnosis/synthesis.py`: optional LLM patient-facing clinical response synthesis.
+- `models/therapy/engine.py`: feature-flagged therapy generation/fallback.
 
-تتبع العمليات في المشروع تسلسلاً منطقياً يضمن دقة النتائج:
+## Diagnosis Flow
 
-1. **مرحلة الإدخال (Input Phase)**:
-   - يرفع المستخدم صورة للتقرير الطبي أو يدخل الأعراض يدوياً.
-2. **محرك الاستخراج (OCR Engine)**:
-   - يتم استخدام مكتبة `PaddleOCR` مع خوارزميات مخصصة (Pattern Matching) لاستخراج قيم التحاليل الطبية بدقة وتحويلها إلى بيانات منظمة (Structured Data).
-3. **محرك التشخيص (Diagnosis Engine)**:
-   - **المرحلة الأولى**: مقارنة النتائج بقواعد طبية مخزنة في ملفات `clinical_rules.yaml`.
-   - **المرحلة الثانية (RAG)**: البحث في قاعدة بيانات الحالات الطبية (FAISS) لتعزيز دقة التشخيص بناءً على حالات مشابهة.
-4. **محرك التوصيات (Therapy Engine)**:
-   - بناءً على التشخيص المبدئي، يتم توليد خطة علاج وتوصيات طبية باللغة العربية عبر نموذج `Gemini`.
+```text
+Prepared report
+ -> diagnose_from_labs
+ -> diagnose_from_symptoms
+ -> optional RAG query
+ -> optional classifier prediction
+ -> _collect_diagnostic_candidates
+ -> _expand_base_diagnostic_candidates
+ -> _rerank_base_candidates
+ -> _build_final_diagnosis
+ -> _build_clarification
+ -> _build_safety
+ -> optional DiagnosisResponseSynthesizer
+```
 
----
+The current design is conservative but still one-shot oriented: it can show a `final_diagnosis`
+before clarification is complete. Future diagnosis work should make `assessment_state`,
+differential diagnosis ranking, and serious-condition support gating explicit.
 
-## 3. هندسة العمليات غير المتزامنة (Async Orchestration)
+## Operational Notes
 
-من أهم نقاط قوة المشروع الاحترافية هي استخدام تقنية الـ **Async/Await** في كل مستويات الـ Backend:
+- RAG and classifier are optional and are disabled if required assets are unavailable.
+- Therapy is feature-flagged and defaults to disabled.
+- Chat session memory is in-process only and is lost on restart.
+- Local model/index artifacts should live under ignored artifact directories, not as partially tracked files.
 
-- **لماذا استخدمناها؟**: لضمان أن الخادم لا يتوقف (Block) أثناء انتظار رد الـ AI، مما يسمح بخدمة أكثر من مستخدم في نفس اللحظة بكفاءة عالية.
-- **المنظم (ChatManager)**: هو القلب النابض للمشروع، يقوم بتنسيق المهام بين الـ OCR والـ Diagnosis والـ Chat بشكل غير متزامن تماماً.
+## Active Setup Documentation
 
----
-
-## 4. المزايا التقنية المتقدمة (Advanced Features)
-
-> [!TIP]
-> **ركز على هذه النقاط في المناقشة:**
-> 1. **Structured JSON Output**: نحن لا نعتمد على رد عشوائي من الذكاء الاصطناعي، بل نجبر النموذج على إخراج النتائج بتنسيق JSON صارم يتم التحقق منه عبر نماذج `Pydantic`.
-> 2. **Dynamic Configuration**: القواعد الطبية مفصولة تماماً عن الكود، مما يسمح لأي طبيب بتحديثها دون الحاجة لتغيير سطر برمجي واحد.
-> 3. **Scalability**: المشروع جاهز للتعامل مع آلاف الحالات بفضل استخدام FastAPI وقواعد بيانات المتجهات (Vector Databases).
+Keep `Fresh_Machine_Setup.md` for environment onboarding. Model training and artifact generation are covered
+by the notebooks runbook under `notebooks/COLAB_RUNBOOK.md`.
