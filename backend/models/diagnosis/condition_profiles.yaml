@@ -41,102 +41,46 @@ urti: # Upper Respiratory Tract Infection
     - runny nose
     - cough
 
-myasthenia_gravis:
-  commonness: very_rare
-  required_features:
-    - drooping eyelids
-    - ptosis
-    - double vision
-    - diplopia
-    - difficulty speaking
-    - dysarthria
-    - difficulty swallowing
-    - dysphagia
-    - fatigable weakness
-    - ocular muscle weakness
-  specific_signals:
-    - worsens with exertion
-    - improves with rest
-
-diabetes_mellitus:
-  commonness: common
-  required_features:
-    - polydipsia # increased thirst
-    - polyuria # frequent urination
-  specific_signals:
-    - unexplained weight loss
-    - polyphagia # increased hunger
-    - blurred vision
-    - fatigue
-
-diabetes_insipidus:
-  commonness: rare
-  required_features:
-    - polydipsia # intense thirst
-    - polyuria # excessive, dilute urination
-  specific_signals:
-    - preference for cold drinks
-    - dehydration
-    - normal blood sugar
-
-hyperthyroidism:
-  commonness: uncommon
-  required_features: []
-  specific_signals:
-    - weight loss despite increased appetite
-    - heat intolerance
-    - palpitations
-    - anxiety
-    - tremor
-    - fatigue
-    - increased thirst
-
-hypothyroidism:
-  commonness: common
-  required_features: []
-  specific_signals:
-    - fatigue
-    - weight gain
-    - cold intolerance
-    - dry skin
-    - constipation
-    - depression
-
-gerd:
-  commonness: common
-  required_features:
-    - heartburn
-    - burning chest
-  specific_signals:
-    - worse after meals
-    - worse when lying down
-    - sour taste
-    - acid reflux
-
-influenza:
+influenza_like_illness:
   commonness: common
   required_features:
     - fever
-    - body aches
-    - myalgia
   specific_signals:
-    - sudden onset
-    - fever
     - cough
-    - muscle aches
+    - myalgia
+    - body aches
     - headache
+
+diabetes_hyperglycemia:
+  commonness: uncommon
+  required_features:
+    - thirst
+    - polyuria
+    - frequent urination
+  specific_signals:
     - fatigue
+    - blurred vision
+    - unexplained weight loss
 
 anemia:
   commonness: common
   required_features: []
   specific_signals:
-    - pallor
-    - pale skin
     - fatigue
     - weakness
-    - shortness of breath on exertion
+    - pale skin
+    - shortness of breath
     - dizziness
+
+pulmonary_embolism:
+  commonness: rare
+  required_features:
+    - shortness of breath
+    - chest pain
+  specific_signals:
+    - cough
+    - leg swelling
+    - pain in one leg
 
 pneumonia:
   commonness: uncommon
@@ -144,146 +88,38 @@ pneumonia:
     - cough
     - fever
   specific_signals:
-    - productive cough
-    - sputum
-    - phlegm
-    - pleuritic chest pain
     - shortness of breath
-    - dyspnea
-
-pulmonary_embolism:
-  commonness: very_rare
-  required_features:
-    - sudden shortness of breath
-    - sudden dyspnea
-    - sudden chest pain
-  specific_signals:
-    - pleuritic chest pain
-    - worse with deep breath
-    - tachycardia
-    - fast heart rate
-    - hypoxia
-    - low oxygen
-    - history of dvt
-    - recent surgery
-    - immobility
-
-pericarditis:
-  commonness: rare
-  required_features:
     - chest pain
-  specific_signals:
-    - sharp chest pain
-    - pleuritic chest pain
-    - improves with leaning forward
-    - worse when lying flat
-    - friction rub
-
-bronchitis:
-  commonness: common
-  required_features:
-    - cough
-  specific_signals:
-    - persistent cough
-    - wheezing
-    - chest tightness
-    - recent upper respiratory infection
-
-asthma:
-  commonness: common
-  required_features: []
-  specific_signals:
-    - wheezing
-    - shortness of breath
-    - chest tightness
-    - cough
-    - worse at night
-    - worse with exercise
-
-stable_angina:
-  commonness: uncommon
-  required_features:
-    - chest pain
-    - chest discomfort
-  specific_signals:
-    - chest pain on exertion
-    - relieved by rest
-    - predictable pattern
-
-unstable_angina:
-  commonness: rare
-  required_features:
-    - chest pain
-    - chest discomfort
-  specific_signals:
-    - chest pain at rest
-    - new onset chest pain
-    - worsening pattern of chest pain
-
-atrial_fibrillation:
-  commonness: uncommon
-  required_features: []
-  specific_signals:
-    - palpitations
-    - irregular heartbeat
-    - dizziness
-    - shortness of breath
-
-spontaneous_pneumothorax:
-  commonness: very_rare
-  required_features:
-    - sudden onset chest pain
-    - sudden shortness of breath
-  specific_signals:
-    - unilateral chest pain
-    - sharp chest pain
-
-viral_pharyngitis:
-  commonness: common
-  required_features:
-    - sore throat
-  specific_signals:
-    - scratchy throat
-    - red throat
-    - runny nose
-    - cough
-
-sarcoidosis:
-  commonness: very_rare
-  required_features: []
-  specific_signals:
-    - persistent dry cough
-    - shortness of breath
     - fatigue
-    - skin lesions
-    - uveitis
 
-psvt:
-  commonness: rare
-  required_features:
-    - palpitations
-    - rapid heart rate
-  specific_signals:
-    - sudden onset palpitations
-    - abruptly stopping palpitations
-    - dizziness
-    - lightheadedness
-
-guillain_barr:
+myasthenia_gravis:
   commonness: very_rare
   required_features:
-    - progressive muscle weakness
+    - muscle weakness
+    - fatigability
+    - ptosis
+    - drooping eyelid
+    - diplopia
+    - double vision
   specific_signals:
-    - ascending weakness
-    - tingling in extremities
-    - areflexia
+    - ptosis
+    - diplopia
+    - difficulty swallowing
+    - difficulty speaking
+    - weakness worsens with activity
 
-laryngospasm:
-  commonness: rare
+myasthenia-gravis:
+  commonness: very_rare
   required_features:
-    - sudden difficulty breathing
-    - stridor
+    - muscle weakness
+    - fatigability
+    - ptosis
+    - drooping eyelid
+    - diplopia
+    - double vision
   specific_signals:
-    - high-pitched sound on inspiration
-    - feeling of choking
-    - short-lived episodes
+    - ptosis
+    - diplopia
+    - difficulty swallowing
+    - difficulty speaking
+    - weakness worsens with activity

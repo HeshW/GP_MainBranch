@@ -90,43 +90,8 @@ class DiagnosisEngine:
         "possible acute viral illness pattern": "Acute viral illness",
     }
     CONDITION_PROFILES: dict[str, Any] = load_condition_profiles()
-    PREVALENCE_RATES: dict[str, float] = {
-        "urti": 0.189,
-        "dehydration": 0.100,
-        "influenza": 0.080,
-        "viral pharyngitis": 0.080,
-        "bronchitis": 0.050,
-        "anemia": 0.050,
-        "diabetes": 0.050,
-        "acute viral illness": 0.080,
-        "gerd": 0.200,
-        "bronchospasm / acute asthma exacerbation": 0.070,
-        "asthma": 0.070,
-        "stable angina": 0.030,
-        "pneumonia": 0.015,
-        "atrial fibrillation": 0.025,
-        "myocarditis": 0.0001,
-        "pulmonary embolism": 0.00005,
-        "unstable angina": 0.005,
-        "pericarditis": 0.001,
-        "spontaneous pneumothorax": 0.0001,
-        "pulmonary neoplasm": 0.0005,
-        "pancreatic neoplasm": 0.0002,
-        "sarcoidosis": 0.0002,
-        "psvt": 0.002,
-        "myasthenia gravis": 0.0002,
-        "guillain barr": 0.0001,
-        "scombroid food poisoning": 0.0001,
-        "larygospasm": 0.001,
-    }
-    # Conditions that require specific red-flag features to be considered at all
-    _REQUIRED_FEATURES_FOR_SERIOUS: dict[str, set[str]] = {
-        "myocarditis": {"chest pain", "dyspnea", "palpitations"},
-        "pulmonary embolism": {"shortness of breath", "chest pain"},
-        "unstable angina": {"chest pain", "chest tightness"},
-        "stable angina": {"chest pain", "exertion"},
-        "spontaneous pneumothorax": {"shortness of breath", "sudden"},
-    }
+
+
     GENERIC_SYMPTOMS: frozenset = frozenset({
         "fatigue", "tired", "weakness", "malaise", "thirst",
         "headache", "dizziness", "lightheaded", "nausea",
@@ -1009,169 +974,7 @@ class DiagnosisEngine:
 
         return sorted(candidate_map.values(), key=lambda item: item.get("confidence", 0.0), reverse=True)
 
-    @classmethod
-    def _pre_diagnosis_context_boost(cls, label: str, context_text: str) -> float:
-        normalized_label = cls._normalize_label(label)
-        normalized_context = cls._normalize_label(context_text)
-        if not normalized_label or not normalized_context:
-            return 0.0
 
-        has_infection = any(term in normalized_context for term in ("fever", "productive cough", "infection"))
-        has_wheeze = "wheez" in normalized_context or "chest tightness" in normalized_context
-        upper_respiratory_context = any(
-            term in normalized_context
-            for term in ("sore throat", "nasal congestion", "runny nose", "hoarseness", "recent cold", "upper respiratory")
-        )
-        no_fever = cls._is_negated_signal(normalized_context, "fever") or "without fever" in normalized_context
-        no_productive_cough = (
-            cls._is_negated_signal(normalized_context, "productive cough")
-            or "without productive" in normalized_context
-            or "no productive" in normalized_context
-        )
-        pe_context = (
-            (
-                "sudden" in normalized_context
-                and (
-                    "pleuritic" in normalized_context
-                    or "worse when i breathe" in normalized_context
-                    or "worsens with breathing" in normalized_context
-                )
-            )
-            or "leg swelling" in normalized_context
-            or "immobility" in normalized_context
-        )
-        pe_risk_markers = any(
-            term in normalized_context
-            for term in (
-                "leg swelling",
-                "calf swelling",
-                "immobility",
-                "recent surgery",
-                "after surgery",
-                "long flight",
-            )
-        )
-        af_context = "irregular" in normalized_context and (
-            "palpit" in normalized_context or "heartbeat" in normalized_context
-        )
-        psvt_context = any(
-            phrase in normalized_context
-            for phrase in ("sudden fast", "abrupt", "start and stop", "starts and stops")
-        )
-        unstable_angina_context = (
-            any(term in normalized_context for term in ("at rest", "rest pain", "worsening", "getting worse"))
-            and any(term in normalized_context for term in ("chest pain", "chest pressure", "chest discomfort"))
-        )
-        stable_angina_context = (
-            any(term in normalized_context for term in ("exertion", "exercise", "effort"))
-            and any(term in normalized_context for term in ("improves with rest", "better with rest", "relief with rest"))
-            and any(term in normalized_context for term in ("chest pain", "chest pressure", "chest discomfort"))
-        )
-        spontaneous_pneumothorax_context = (
-            any(term in normalized_context for term in ("sudden", "suddenly"))
-            and any(term in normalized_context for term in ("one side", "one sided", "unilateral"))
-            and any(term in normalized_context for term in ("shortness of breath", "short of breath", "dyspnea"))
-            and not pe_risk_markers
-        )
-        pulmonary_neoplasm_context = (
-            "cough" in normalized_context
-            and "weight loss" in normalized_context
-            and any(term in normalized_context for term in ("chronic", "persistent", "progressive", "worsening"))
-        )
-        pancreatic_neoplasm_context = (
-            any(term in normalized_context for term in ("epigastric", "abdominal pain", "stomach pain"))
-            and "weight loss" in normalized_context
-            and any(term in normalized_context for term in ("poor appetite", "loss of appetite", "reduced appetite"))
-        )
-        viral_pharyngitis_context = (
-            "sore throat" in normalized_context
-            and "fever" in normalized_context
-            and any(term in normalized_context for term in ("hoarseness", "cold", "nasal congestion", "runny nose"))
-        )
-        acute_laryngitis_context = (
-            "hoarseness" in normalized_context
-            and any(term in normalized_context for term in ("voice", "recent cold", "sore throat"))
-        )
-        chronic_dry_cough = (
-            "dry cough" in normalized_context
-            and ("gradual" in normalized_context or "persistent" in normalized_context)
-        )
-
-        boost = 0.0
-        if "pulmonary embolism" in normalized_label and pe_context:
-            boost += 0.18
-        if any(term in normalized_label for term in ("myocarditis", "pericarditis")) and pe_context:
-            boost -= 0.10
-
-        if "pneumonia" in normalized_label:
-            if has_infection:
-                boost += 0.12
-            if has_wheeze and no_fever and no_productive_cough:
-                boost -= 0.09
-            if upper_respiratory_context and not has_infection:
-                boost -= 0.10
-
-        if "bronchospasm" in normalized_label or "asthma" in normalized_label:
-            if has_wheeze:
-                boost += 0.10
-            if no_fever or no_productive_cough:
-                boost += 0.07
-
-        if "bronchitis" in normalized_label:
-            if "pleuritic" in normalized_context and has_infection:
-                boost -= 0.08
-            if has_wheeze and (no_fever or no_productive_cough):
-                boost -= 0.08
-
-        if "urti" in normalized_label and upper_respiratory_context:
-            boost += 0.16
-
-        if "viral pharyngitis" in normalized_label and upper_respiratory_context:
-            boost += 0.08
-
-        if "atrial fibrillation" in normalized_label and af_context:
-            boost += 0.12
-        if "psvt" in normalized_label and psvt_context:
-            boost += 0.10
-
-        if "sarcoidosis" in normalized_label:
-            if chronic_dry_cough:
-                boost += 0.14
-            if cls._is_negated_signal(normalized_context, "acute infection"):
-                boost += 0.06
-
-        if "myocarditis" in normalized_label and chronic_dry_cough:
-            boost -= 0.16
-        if "myocarditis" in normalized_label and unstable_angina_context:
-            boost -= 0.18
-        if "myocarditis" in normalized_label and spontaneous_pneumothorax_context:
-            boost -= 0.22
-
-        if "unstable angina" in normalized_label and unstable_angina_context:
-            boost += 0.24
-        if "stable angina" in normalized_label and stable_angina_context:
-            boost += 0.18
-        if "spontaneous pneumothorax" in normalized_label and spontaneous_pneumothorax_context:
-            boost += 0.26
-        if "spontaneous pneumothorax" in normalized_label and pe_risk_markers:
-            boost -= 0.14
-        if "pulmonary neoplasm" in normalized_label and pulmonary_neoplasm_context:
-            boost += 0.22
-        if "pancreatic neoplasm" in normalized_label and pancreatic_neoplasm_context:
-            boost += 0.22
-        if "viral pharyngitis" in normalized_label and viral_pharyngitis_context:
-            boost += 0.20
-        if "acute laryngitis" in normalized_label and acute_laryngitis_context:
-            boost += 0.16
-
-        if "ebola" in normalized_label and viral_pharyngitis_context:
-            boost -= 0.32
-        if "larygospasm" in normalized_label and pulmonary_neoplasm_context:
-            boost -= 0.20
-        if ("bronchospasm" in normalized_label or "asthma" in normalized_label) and spontaneous_pneumothorax_context:
-            boost -= 0.20
-
-        return boost
 
     @classmethod
     def _get_condition_profile(cls, label: str) -> dict:
@@ -1238,8 +1041,11 @@ class DiagnosisEngine:
             profile = cls._get_condition_profile(label)
             specific_signals = profile.get("specific_signals", [])
             if specific_signals:
-                normalized_symptoms = {cls._normalize_label(s) for s in patient_symptoms if str(s).strip()}
-                if any(signal in normalized_symptoms for signal in specific_signals):
+                symptom_set = {cls._normalize_label(s) for s in patient_symptoms if str(s).strip()}
+                normalized_report_text = cls._normalize_label(report_text)
+                text_blob = " ".join(list(symptom_set) + [normalized_report_text])
+
+                if any(signal in text_blob for signal in specific_signals):
                     adjusted_confidence += 0.10 # Small bonus
 
             candidate["confidence"] = max(0.01, min(round(adjusted_confidence, 4), 0.98))
@@ -2225,22 +2031,6 @@ class DiagnosisEngine:
 
     @classmethod
     def _canonicalize_generic_rule_label(cls, label: str, diagnosis_payload: Dict[str, Any]) -> str:
-        normalized = cls._normalize_label(label)
-        if not cls._is_generic_rule_pattern_label(label):
-            return label
-
-        direct = cls.GENERIC_RULE_PATTERN_DIRECT_MAP.get(normalized)
-        if direct:
-            return direct
-
-        keywords = cls.GENERIC_RULE_PATTERN_FAMILY_KEYWORDS.get(normalized)
-        if not keywords:
-            return label
-
-        candidates = cls._collect_canonicalization_candidates(diagnosis_payload)
-        for candidate in candidates:
-            if cls._label_matches_any_keyword(candidate["label"], keywords):
-                return candidate["label"]
         return label
 
     @classmethod
@@ -2602,9 +2392,12 @@ class DiagnosisEngine:
         )
 
         return (
-            max_rule_severity >= 2
-            and selected_confidence < cls.RULE_GATING_AI_CONFIDENCE_THRESHOLD
-            and classifier_confidence < cls.CLASSIFIER_PRIMARY_THRESHOLD
+            max_rule_severity >= 3
+            or (
+                max_rule_severity >= 2
+                and selected_confidence < (cls.RULE_GATING_AI_CONFIDENCE_THRESHOLD + 0.05)
+                and classifier_confidence < (cls.CLASSIFIER_PRIMARY_THRESHOLD + 0.05)
+            )
         )
 
     @classmethod

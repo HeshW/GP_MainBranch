@@ -77,6 +77,18 @@ def parse_args() -> argparse.Namespace:
         default=Path(settings.clinicalbert_model_dir) if settings.clinicalbert_model_dir else Path("backend/artifacts/bio_clinicalbert"),
     )
     parser.add_argument(
+        "--llm-provider",
+        default=settings.llm_provider,
+    )
+    parser.add_argument(
+        "--llm-api-key",
+        default=settings.llm_api_key,
+    )
+    parser.add_argument(
+        "--llm-model-name",
+        default=settings.llm_model_name,
+    )
+    parser.add_argument(
         "--gemini-api-key",
         default=settings.gemini_api_key,
     )
@@ -209,7 +221,7 @@ def top_k_accuracy(y_true: list[str], top_k_predictions: list[list[str]], k: int
         return 0.0
     hits = 0
     for true_label, predicted_labels in zip(y_true, top_k_predictions):
-        if true_label in predicted_labels[:k]:
+        if normalize_label(true_label) in [normalize_label(p) for p in predicted_labels[:k]]:
             hits += 1
     return hits / len(y_true)
 
@@ -384,8 +396,8 @@ async def evaluate_case(
         "predicted_conditions": predicted_conditions,
         "top_1_prediction": top_1_prediction,
         "top_3_predictions": top_3_predictions,
-        "top_1_correct": top_1_prediction == primary_expected,
-        "top_3_correct": primary_expected in top_3_predictions,
+        top_1_correct = normalize_label(top_1_prediction) == normalize_label(primary_expected)
+        top_3_correct = normalize_label(primary_expected) in [normalize_label(p) for p in top_3_predictions]
         "top_1_clinical_match": top_1_clinical_match,
         "top_3_clinical_match": top_3_clinical_match,
         "diagnosis_hit": diagnosis_hit,
@@ -436,6 +448,9 @@ async def main_async() -> None:
         use_rag=args.use_rag,
         faiss_index_dir=args.faiss_index_dir,
         clinicalbert_model_dir=args.clinicalbert_model_dir,
+        llm_provider=args.llm_provider,
+        llm_api_key=args.llm_api_key,
+        llm_model_name=args.llm_model_name,
         gemini_api_key=args.gemini_api_key,
         rag_top_k=args.rag_top_k,
         rag_translate_arabic=args.rag_translate_arabic,
