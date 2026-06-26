@@ -52,21 +52,55 @@ myasthenia_gravis:
     - dysarthria
     - difficulty swallowing
     - dysphagia
-  specific_signals:
     - fatigable weakness
+    - ocular muscle weakness
+  specific_signals:
     - worsens with exertion
     - improves with rest
 
-diabetes:
+diabetes_mellitus:
+  commonness: common
+  required_features:
+    - polydipsia # increased thirst
+    - polyuria # frequent urination
+  specific_signals:
+    - unexplained weight loss
+    - polyphagia # increased hunger
+    - blurred vision
+    - fatigue
+
+diabetes_insipidus:
+  commonness: rare
+  required_features:
+    - polydipsia # intense thirst
+    - polyuria # excessive, dilute urination
+  specific_signals:
+    - preference for cold drinks
+    - dehydration
+    - normal blood sugar
+
+hyperthyroidism:
+  commonness: uncommon
+  required_features: []
+  specific_signals:
+    - weight loss despite increased appetite
+    - heat intolerance
+    - palpitations
+    - anxiety
+    - tremor
+    - fatigue
+    - increased thirst
+
+hypothyroidism:
   commonness: common
   required_features: []
   specific_signals:
-    - increased thirst
-    - polydipsia
-    - frequent urination
-    - polyuria
-    - unexplained weight loss
-    - blurred vision
+    - fatigue
+    - weight gain
+    - cold intolerance
+    - dry skin
+    - constipation
+    - depression
 
 gerd:
   commonness: common
