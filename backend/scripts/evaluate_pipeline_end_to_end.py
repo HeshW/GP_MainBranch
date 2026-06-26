@@ -65,7 +65,7 @@ def parse_args() -> argparse.Namespace:
         default=Path("data/evaluation/pipeline_end_to_end_summary.json"),
         help="Where to write the summary JSON report.",
     )
-    parser.add_argument("--use-rag", action="store_true", default=settings.use_rag)
+    parser.add_argument("--use-rag", default=settings.use_rag, type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument(
         "--faiss-index-dir",
         type=Path,
@@ -93,8 +93,8 @@ def parse_args() -> argparse.Namespace:
         default=settings.gemini_api_key,
     )
     parser.add_argument("--rag-top-k", type=int, default=settings.rag_top_k)
-    parser.add_argument("--rag-translate-arabic", action="store_true", default=settings.rag_translate_arabic)
-    parser.add_argument("--use-finetuned-classifier", action="store_true", default=settings.use_finetuned_classifier)
+    parser.add_argument("--rag-translate-arabic", default=settings.rag_translate_arabic, type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument("--use-finetuned-classifier", default=settings.use_finetuned_classifier, type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument(
         "--finetuned-model-dir",
         type=Path,
@@ -105,7 +105,7 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--classifier-max-length", type=int, default=settings.classifier_max_length)
-    parser.add_argument("--classifier-translate-arabic", action="store_true", default=settings.classifier_translate_arabic)
+    parser.add_argument("--classifier-translate-arabic", default=settings.classifier_translate_arabic, type=lambda x: (str(x).lower() == 'true'))
     return parser.parse_args()
 
 
@@ -396,8 +396,8 @@ async def evaluate_case(
         "predicted_conditions": predicted_conditions,
         "top_1_prediction": top_1_prediction,
         "top_3_predictions": top_3_predictions,
-        top_1_correct = normalize_label(top_1_prediction) == normalize_label(primary_expected)
-        top_3_correct = normalize_label(primary_expected) in [normalize_label(p) for p in top_3_predictions]
+        "top_1_correct": normalize_label(top_1_prediction) == normalize_label(primary_expected),
+        "top_3_correct": normalize_label(primary_expected) in [normalize_label(p) for p in top_3_predictions],
         "top_1_clinical_match": top_1_clinical_match,
         "top_3_clinical_match": top_3_clinical_match,
         "diagnosis_hit": diagnosis_hit,
