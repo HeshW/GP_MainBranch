@@ -7,22 +7,30 @@ from __future__ import annotations
 
 from typing import List, Optional
 from pydantic import BaseModel, Field
+from enum import Enum
 
 
-class AIDiagnosisFinding(BaseModel):
-    """A single medical finding from AI analysis."""
-    condition: str = Field(..., description="The name of the suspected condition or finding.")
-    confidence: str = Field(..., description="Level of confidence: High, Moderate, or Low.")
-    evidence: str = Field(..., description="Clinical evidence or rationale for this finding.")
-    severity: str = Field(..., description="Severity level: Critical, High, Moderate, Low, or Info.")
+class AssessmentState(str, Enum):
+    """The state of the diagnostic assessment."""
+    NEEDS_CLARIFICATION = "needs_clarification"
+    FINAL = "final"
+    ABSTAINED = "abstained"
+
+
+class DifferentialDiagnosis(BaseModel):
+    """A single diagnosis within a ranked differential list."""
+    condition: str = Field(..., description="The name of the condition.")
+    confidence: float = Field(..., description="Numerical confidence score (0.0 to 1.0).")
+    rationale: str = Field(..., description="Brief rationale for including this condition.")
 
 
 class AIDiagnosisResponse(BaseModel):
     """The full structured response for AI diagnosis."""
-    assessment_summary: str = Field(..., description="A professional, narrative summary of the medical assessment.")
-    findings: List[AIDiagnosisFinding] = Field(..., description="List of specific clinical findings identified.")
-    follow_up_questions: List[str] = Field(..., description="3 critical questions to ask the patient to further clarify the diagnosis.")
-    source_attribution: Optional[str] = Field(None, description="Note on data sources or similar cases matched.")
+    assessment_state: AssessmentState = Field(..., description="The overall state of the assessment, guiding the UI.")
+    assessment_summary: str = Field(..., description="A professional, narrative summary of the current assessment. This should explain the leading possibilities and the rationale for clarification if needed.")
+    differential_diagnosis: List[DifferentialDiagnosis] = Field(..., description="A ranked list of possible conditions.")
+    follow_up_questions: List[str] = Field(default_factory=list, description="Critical questions to ask the patient to further clarify the diagnosis. Empty if assessment_state is 'final'.")
+    source_attribution: Optional[str] = Field(None, description="Note on data sources or similar cases matched, if applicable.")
 
 
 class AITherapyRecommendation(BaseModel):

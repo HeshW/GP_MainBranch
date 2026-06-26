@@ -165,6 +165,24 @@ SYMPTOM_RULES: list[dict[str, Any]] = [
         "severity": "moderate",
         "evidence_fmt": "Systemic symptom cluster detected: {matched}.",
     },
+    {
+        "symptoms": {"thirst", "fatigue", "headache", "dizziness"},
+        "condition": "Possible dehydration / fluid depletion pattern",
+        "confidence": "low",
+        "severity": "moderate",
+        "min_matches": 1,
+        "text_any": ("thirst", "thirsty", "dry mouth", "dry lips", "dark urine", "reduced intake"),
+        "evidence_fmt": "Symptoms compatible with dehydration/fluid depletion: {matched}{context_clause}.",
+    },
+    {
+        "symptoms": {"chest pain", "shortness of breath", "dyspnea", "palpitations", "fatigue", "viral prodrome"},
+        "condition": "Myocarditis",
+        "confidence": "low",
+        "severity": "high",
+        "min_matches": 2,
+        "text_any": ("viral", "chest pain", "worse when lying down"),
+        "evidence_fmt": "Symptoms compatible with myocarditis: {matched}{context_clause}.",
+    },
 ]
 
 

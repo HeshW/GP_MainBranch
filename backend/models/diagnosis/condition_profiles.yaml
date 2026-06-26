@@ -1,0 +1,255 @@
+# Centralized clinical knowledge profiles for the diagnosis engine.
+# This file separates clinical data from Python logic.
+
+# commonness: A categorical representation of prevalence.
+#   - common: >5%
+#   - uncommon: 1-5%
+#   - rare: 0.1-1%
+#   - very_rare: <0.1%
+# required_features: A set of symptoms, one of which MUST be present for the
+#   condition to be seriously considered. Absence leads to a heavy penalty.
+# specific_signals: Symptoms that are highly suggestive of this condition.
+
+myocarditis:
+  commonness: very_rare
+  required_features:
+    - chest pain
+    - shortness of breath
+    - dyspnea
+    - palpitations
+  specific_signals:
+    - viral prodrome
+    - worse when lying down
+    - myalgia
+
+dehydration:
+  commonness: common
+  required_features: [] # No single required feature
+  specific_signals:
+    - thirst
+    - thirsty
+    - dry mouth
+    - reduced intake
+    - dark urine
+
+urti: # Upper Respiratory Tract Infection
+  commonness: common
+  required_features: []
+  specific_signals:
+    - sore throat
+    - nasal congestion
+    - runny nose
+    - cough
+
+myasthenia_gravis:
+  commonness: very_rare
+  required_features:
+    - drooping eyelids
+    - ptosis
+    - double vision
+    - diplopia
+    - difficulty speaking
+    - dysarthria
+    - difficulty swallowing
+    - dysphagia
+  specific_signals:
+    - fatigable weakness
+    - worsens with exertion
+    - improves with rest
+
+diabetes:
+  commonness: common
+  required_features: []
+  specific_signals:
+    - increased thirst
+    - polydipsia
+    - frequent urination
+    - polyuria
+    - unexplained weight loss
+    - blurred vision
+
+gerd:
+  commonness: common
+  required_features:
+    - heartburn
+    - burning chest
+  specific_signals:
+    - worse after meals
+    - worse when lying down
+    - sour taste
+    - acid reflux
+
+influenza:
+  commonness: common
+  required_features:
+    - fever
+    - body aches
+    - myalgia
+  specific_signals:
+    - sudden onset
+    - fever
+    - cough
+    - muscle aches
+    - headache
+    - fatigue
+
+anemia:
+  commonness: common
+  required_features: []
+  specific_signals:
+    - pallor
+    - pale skin
+    - fatigue
+    - weakness
+    - shortness of breath on exertion
+    - dizziness
+
+pneumonia:
+  commonness: uncommon
+  required_features:
+    - cough
+    - fever
+  specific_signals:
+    - productive cough
+    - sputum
+    - phlegm
+    - pleuritic chest pain
+    - shortness of breath
+    - dyspnea
+
+pulmonary_embolism:
+  commonness: very_rare
+  required_features:
+    - sudden shortness of breath
+    - sudden dyspnea
+    - sudden chest pain
+  specific_signals:
+    - pleuritic chest pain
+    - worse with deep breath
+    - tachycardia
+    - fast heart rate
+    - hypoxia
+    - low oxygen
+    - history of dvt
+    - recent surgery
+    - immobility
+
+pericarditis:
+  commonness: rare
+  required_features:
+    - chest pain
+  specific_signals:
+    - sharp chest pain
+    - pleuritic chest pain
+    - improves with leaning forward
+    - worse when lying flat
+    - friction rub
+
+bronchitis:
+  commonness: common
+  required_features:
+    - cough
+  specific_signals:
+    - persistent cough
+    - wheezing
+    - chest tightness
+    - recent upper respiratory infection
+
+asthma:
+  commonness: common
+  required_features: []
+  specific_signals:
+    - wheezing
+    - shortness of breath
+    - chest tightness
+    - cough
+    - worse at night
+    - worse with exercise
+
+stable_angina:
+  commonness: uncommon
+  required_features:
+    - chest pain
+    - chest discomfort
+  specific_signals:
+    - chest pain on exertion
+    - relieved by rest
+    - predictable pattern
+
+unstable_angina:
+  commonness: rare
+  required_features:
+    - chest pain
+    - chest discomfort
+  specific_signals:
+    - chest pain at rest
+    - new onset chest pain
+    - worsening pattern of chest pain
+
+atrial_fibrillation:
+  commonness: uncommon
+  required_features: []
+  specific_signals:
+    - palpitations
+    - irregular heartbeat
+    - dizziness
+    - shortness of breath
+
+spontaneous_pneumothorax:
+  commonness: very_rare
+  required_features:
+    - sudden onset chest pain
+    - sudden shortness of breath
+  specific_signals:
+    - unilateral chest pain
+    - sharp chest pain
+
+viral_pharyngitis:
+  commonness: common
+  required_features:
+    - sore throat
+  specific_signals:
+    - scratchy throat
+    - red throat
+    - runny nose
+    - cough
+
+sarcoidosis:
+  commonness: very_rare
+  required_features: []
+  specific_signals:
+    - persistent dry cough
+    - shortness of breath
+    - fatigue
+    - skin lesions
+    - uveitis
+
+psvt:
+  commonness: rare
+  required_features:
+    - palpitations
+    - rapid heart rate
+  specific_signals:
+    - sudden onset palpitations
+    - abruptly stopping palpitations
+    - dizziness
+    - lightheadedness
+
+guillain_barr:
+  commonness: very_rare
+  required_features:
+    - progressive muscle weakness
+  specific_signals:
+    - ascending weakness
+    - tingling in extremities
+    - areflexia
+
+laryngospasm:
+  commonness: rare
+  required_features:
+    - sudden difficulty breathing
+    - stridor
+  specific_signals:
+    - high-pitched sound on inspiration
+    - feeling of choking
+    - short-lived episodes

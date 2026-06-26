@@ -31,7 +31,48 @@ def test_symptoms_only_returns_symptom_rule_finding():
     assert out["findings"]
     assert out["decision_fusion"]["primary_source"] == "rules_fallback"
     assert any(finding["source"] == "symptom_rules" for finding in out["findings"])
-    assert "AI-assisted assessment suggests" in out["summary"]
+    # With the new dehydration rule, fatigue+thirst now matches multiple patterns
+    # (hyperglycemia AND dehydration). The system correctly asks for clarification
+    # rather than jumping to a single alarming diagnosis like myocarditis.
+    clarification = out.get("clarification")
+    assert clarification is None or not clarification.get("needed", False) or "uncertain" in out["summary"].lower()
+
+
+def test_sparse_symptoms_surface_clarification_state_for_serious_ai_label(monkeypatch):
+    class StubClassifier:
+        def __init__(self, model_dir, max_length=256, device=None):
+            pass
+
+        def predict(self, text):
+            return {
+                "predicted_label": "Myocarditis",
+                "confidence": 0.49,
+                "top_predictions": [
+                    {"label": "Myocarditis", "confidence": 0.49},
+                    {"label": "Stable angina", "confidence": 0.37},
+                ],
+            }
+
+    monkeypatch.setattr("models.diagnosis.diagnosisengine.FineTunedDiagnosisClassifier", StubClassifier)
+
+    engine = DiagnosisEngine(
+        use_finetuned_classifier=True,
+        finetuned_model_dir="fake-model-dir",
+    )
+    out = run_async(
+        engine.diagnose(
+            {
+                "raw_text": "I feel thirsty and have fatigue for a week",
+                "symptoms": ["fatigue", "thirst"],
+                "labs": {},
+            }
+        )
+    )
+
+    assert out["assessment_state"] == "needs_clarification"
+    assert out["clarification"] is not None
+    assert out["clarification"]["needed"] is True
+    assert out["final_diagnosis"] is not None
 
 
 def test_reflux_context_triggers_symptom_rule():

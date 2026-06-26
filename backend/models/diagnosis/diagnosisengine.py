@@ -5,9 +5,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any, Dict, Optional
+import yaml
 
 import logging
 
+from app.schemas.ai import AssessmentState
 from models.common.language import detect_preferred_language, normalize_language
 from models.common.provider_factory import create_model_provider
 from .rag import (
@@ -22,6 +24,21 @@ from .synthesis import DiagnosisResponseSynthesizer
 from .text import build_combined_text
 
 logger = logging.getLogger(__name__)
+
+def load_condition_profiles() -> Dict[str, Any]:
+    """Loads the clinical knowledge base from YAML."""
+    profiles_path = Path(__file__).parent / "condition_profiles.yaml"
+    if not profiles_path.exists():
+        logger.warning("condition_profiles.yaml not found. No profiles loaded.")
+        return {}
+    try:
+        with profiles_path.open("r", encoding="utf-8") as handle:
+            profiles = yaml.safe_load(handle) or {}
+        logger.info("Loaded %d condition profiles from YAML", len(profiles))
+        return profiles
+    except Exception as exc:
+        logger.error("Failed to load condition_profiles.yaml: %s", exc)
+        return {}
 
 
 class DiagnosisEngine:
@@ -69,7 +86,51 @@ class DiagnosisEngine:
         "possible gastroesophageal reflux pattern": "GERD",
         "possible anemia related symptom pattern": "Anemia",
         "possible upper respiratory tract infection pattern": "URTI",
+        "possible dehydration / fluid depletion pattern": "Dehydration",
+        "possible acute viral illness pattern": "Acute viral illness",
     }
+    CONDITION_PROFILES: dict[str, Any] = load_condition_profiles()
+    PREVALENCE_RATES: dict[str, float] = {
+        "urti": 0.189,
+        "dehydration": 0.100,
+        "influenza": 0.080,
+        "viral pharyngitis": 0.080,
+        "bronchitis": 0.050,
+        "anemia": 0.050,
+        "diabetes": 0.050,
+        "acute viral illness": 0.080,
+        "gerd": 0.200,
+        "bronchospasm / acute asthma exacerbation": 0.070,
+        "asthma": 0.070,
+        "stable angina": 0.030,
+        "pneumonia": 0.015,
+        "atrial fibrillation": 0.025,
+        "myocarditis": 0.0001,
+        "pulmonary embolism": 0.00005,
+        "unstable angina": 0.005,
+        "pericarditis": 0.001,
+        "spontaneous pneumothorax": 0.0001,
+        "pulmonary neoplasm": 0.0005,
+        "pancreatic neoplasm": 0.0002,
+        "sarcoidosis": 0.0002,
+        "psvt": 0.002,
+        "myasthenia gravis": 0.0002,
+        "guillain barr": 0.0001,
+        "scombroid food poisoning": 0.0001,
+        "larygospasm": 0.001,
+    }
+    # Conditions that require specific red-flag features to be considered at all
+    _REQUIRED_FEATURES_FOR_SERIOUS: dict[str, set[str]] = {
+        "myocarditis": {"chest pain", "dyspnea", "palpitations"},
+        "pulmonary embolism": {"shortness of breath", "chest pain"},
+        "unstable angina": {"chest pain", "chest tightness"},
+        "stable angina": {"chest pain", "exertion"},
+        "spontaneous pneumothorax": {"shortness of breath", "sudden"},
+    }
+    GENERIC_SYMPTOMS: frozenset = frozenset({
+        "fatigue", "tired", "weakness", "malaise", "thirst",
+        "headache", "dizziness", "lightheaded", "nausea",
+    })
     GENERIC_RULE_PATTERN_FAMILY_KEYWORDS = {
         "possible lower respiratory infection pattern": (
             "pneumonia",
@@ -343,11 +404,15 @@ class DiagnosisEngine:
         },
         "myasthenia gravis": {
             "positive": ("ptosis", "drooping eyelids", "difficulty speaking", "fatigable", "worsens with exertion"),
-            "negative": (),
+            "negative": ("polyuria", "polydipsia", "frequent urination", "increased thirst"),
         },
         "guillain barr": {
             "positive": ("ascending weakness", "tingling", "reflexes"),
             "negative": ("ptosis", "fatigable", "difficulty speaking"),
+        },
+        "diabetes": {
+            "positive": ("increased thirst", "polydipsia", "frequent urination", "polyuria", "unexplained weight loss", "blurred vision"),
+            "negative": ("drooping eyelids", "ptosis", "double vision", "diplopia"),
         },
     }
     RESPIRATORY_LABEL_KEYWORDS = (
@@ -1109,6 +1174,40 @@ class DiagnosisEngine:
         return boost
 
     @classmethod
+    def _get_condition_profile(cls, label: str) -> dict:
+        """Safely get a condition profile by normalized label."""
+        normalized_label = cls._normalize_label(label)
+        return cls.CONDITION_PROFILES.get(normalized_label, {})
+
+    @classmethod
+    def _apply_prevalence_penalty(cls, label: str, confidence: float) -> float:
+        """Applies a penalty based on the 'commonness' category from the profile."""
+        profile = cls._get_condition_profile(label)
+        commonness = profile.get("commonness", "uncommon")
+
+        prevalence_weights = {
+            "common": 0.0,        # No penalty
+            "uncommon": -0.15,    # Moderate penalty
+            "rare": -0.25,        # Strong penalty
+            "very_rare": -0.40,   # Very strong penalty
+        }
+        penalty = prevalence_weights.get(commonness, -0.20)
+        return max(0.01, confidence + penalty)
+
+    @classmethod
+    def _has_required_features(cls, label: str, patient_symptoms: list[str], report_text: str = "") -> bool:
+        """Checks if at least one of the required features for a condition is present."""
+        profile = cls._get_condition_profile(label)
+        required = profile.get("required_features")
+        if not required:
+            return True  # No required features defined, so it passes.
+
+        normalized_text = cls._normalize_label(report_text) if report_text else ""
+        normalized_symptoms = {cls._normalize_label(s) for s in patient_symptoms if str(s).strip()}
+        combined = normalized_text + " " + " ".join(normalized_symptoms)
+        return any(feature in combined for feature in required)
+
+    @classmethod
     def _rerank_base_candidates(
         cls,
         *,
@@ -1117,68 +1216,36 @@ class DiagnosisEngine:
         patient_symptoms: list[str],
         report_text: str,
     ) -> list[Dict[str, Any]]:
-        if not candidates:
-            return candidates
-
-        rule_conditions = [str(item.get("condition", "")).strip() for item in findings if item.get("condition")]
-        context_text = " ".join(
-            part for part in (
-                report_text,
-                " ".join(patient_symptoms),
-            )
-            if str(part).strip()
-        )
-        normalized_context = cls._normalize_label(context_text)
-        has_concrete_candidates = any(
-            not cls._is_generic_rule_pattern_label(str(item.get("label", "")))
-            for item in candidates
-        )
-
         reranked: list[Dict[str, Any]] = []
         for item in candidates:
             candidate = dict(item)
             label = str(candidate.get("label", "")).strip()
+            if not label:
+                continue
             base_confidence = cls._normalize_confidence(candidate.get("confidence"))
 
-            signal_score = cls._signal_match_score(label, normalized_context) if normalized_context else 0.0
-            context_boost = cls._pre_diagnosis_context_boost(label, normalized_context) if normalized_context else 0.0
-            rule_alignment = cls._diagnosis_aligns_with_rules(label, rule_conditions)
-            rule_bonus = (
-                cls.PRE_DIAGNOSIS_RULE_ALIGNMENT_BONUS
-                if rule_alignment and not cls._is_generic_rule_pattern_label(label)
-                else 0.0
-            )
-            generic_penalty = (
-                cls.PRE_DIAGNOSIS_GENERIC_PATTERN_PENALTY
-                if has_concrete_candidates and cls._is_generic_rule_pattern_label(label)
-                else 0.0
-            )
+            # 1. Start with base confidence
+            adjusted_confidence = base_confidence
 
-            adjusted_confidence = (
-                base_confidence
-                + (cls.PRE_DIAGNOSIS_SIGNAL_WEIGHT * signal_score)
-                + context_boost
-                + rule_bonus
-                - generic_penalty
-            )
-            candidate["confidence"] = max(0.05, min(round(adjusted_confidence, 4), 0.98))
-            candidate["rule_alignment"] = rule_alignment
+            # 2. Apply strong penalty for low prevalence.
+            adjusted_confidence = cls._apply_prevalence_penalty(label, adjusted_confidence)
+
+            # 3. Apply a heavy penalty if required features are missing.
+            if not cls._has_required_features(label, patient_symptoms, report_text):
+                adjusted_confidence -= 0.50 # Heavy subtractive penalty
+
+            # 4. (Optional) Add smaller bonus for specific signals
+            profile = cls._get_condition_profile(label)
+            specific_signals = profile.get("specific_signals", [])
+            if specific_signals:
+                normalized_symptoms = {cls._normalize_label(s) for s in patient_symptoms if str(s).strip()}
+                if any(signal in normalized_symptoms for signal in specific_signals):
+                    adjusted_confidence += 0.10 # Small bonus
+
+            candidate["confidence"] = max(0.01, min(round(adjusted_confidence, 4), 0.98))
             reranked.append(candidate)
 
-        candidates = sorted(
-            reranked,
-            key=lambda item: (
-                item["confidence"],
-                "classifier" in item["sources"] and any(
-                    source in {"rag", "rag_retrieval"}
-                    for source in item["sources"]
-                ),
-                "classifier" in item["sources"],
-                "rag" in item["sources"] or "rag_retrieval" in item["sources"],
-            ),
-            reverse=True,
-        )
-        return candidates
+        return sorted(reranked, key=lambda item: item.get("confidence", 0.0), reverse=True)
 
     @classmethod
     def _clarification_reasons(
@@ -2978,6 +3045,15 @@ class DiagnosisEngine:
         )
         if clarification:
             result["clarification"] = clarification
+
+        if clarification and clarification.get("needed"):
+            result["assessment_state"] = "needs_clarification"
+        elif final_diagnosis:
+            result["assessment_state"] = "final"
+        elif findings_payload:
+            result["assessment_state"] = "findings_only"
+        else:
+            result["assessment_state"] = "uncertain"
 
         result["summary"] = self._build_summary(
             findings_payload,

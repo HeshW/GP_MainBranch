@@ -10,8 +10,13 @@ import logging
 import threading
 from typing import Any, AsyncGenerator, Optional, Type
 
-from google import genai
-from google.genai import types
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:
+    genai = None  # type: ignore[assignment]
+    types = None  # type: ignore[assignment]
+
 from pydantic import BaseModel
 import requests
 
@@ -49,6 +54,11 @@ class GeminiProvider(BaseModelProvider):
     """Google GenAI implementation backed by ``google.genai``."""
 
     def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash-lite") -> None:
+        if genai is None:
+            raise ImportError(
+                "The 'google-genai' package is required for GeminiProvider. "
+                "Install it with: pip install google-genai"
+            )
         self.model_name = model_name
         self._client = genai.Client(api_key=api_key)
 
@@ -59,7 +69,12 @@ class GeminiProvider(BaseModelProvider):
         json_mode: bool,
         response_model: Optional[Type[BaseModel]],
         kwargs: dict[str, Any],
-    ) -> types.GenerateContentConfig:
+    ):
+        if types is None:
+            raise ImportError(
+                "The 'google-genai' package is required for GeminiProvider. "
+                "Install it with: pip install google-genai"
+            )
         config = types.GenerateContentConfig(
             system_instruction=system_instruction,
             temperature=kwargs.get("temperature", 0.3),

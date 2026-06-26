@@ -46,6 +46,10 @@ function createMessageId(prefix: string) {
 }
 
 function summarizeAnalysis(result: AnalysisResponse): string {
+  const assessmentState = result.diagnosis?.assessment_state ?? (result.diagnosis?.clarification?.needed ? "needs_clarification" : "final");
+  if (assessmentState === "needs_clarification") {
+    return "Preliminary assessment is pending clarification. Follow-up questions are needed before a final diagnosis is shown.";
+  }
   const diagnosis = result.diagnosis?.final_diagnosis?.diagnosis ?? "No final diagnosis";
   const confidence = result.diagnosis?.final_diagnosis?.confidence;
   const confidenceText = confidence === undefined ? "n/a" : String(confidence);

@@ -93,6 +93,7 @@ export interface AnalysisResponse {
         sources?: string[];
       }>;
     };
+    assessment_state?: "final" | "needs_clarification" | "findings_only" | "uncertain";
     ai_response?: string;
     ai_response_metadata?: {
       mode?: string;

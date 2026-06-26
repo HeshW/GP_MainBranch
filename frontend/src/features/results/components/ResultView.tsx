@@ -23,11 +23,14 @@ export function ResultView({ error, result, onClarify }: ResultViewProps) {
   const classifierPrediction = result?.diagnosis?.classifier_prediction;
   const retrievedCases = result?.diagnosis?.retrieved_cases ?? [];
   const clarification = result?.diagnosis?.clarification;
+  const assessmentState = result?.diagnosis?.assessment_state ?? (clarification?.needed ? "needs_clarification" : "final");
   const diagnosticCandidates = result?.diagnosis?.diagnostic_candidates ?? [];
   const aiResponse = result?.diagnosis?.ai_response ?? result?.diagnosis?.gemini_response;
   const aiMeta = result?.diagnosis?.ai_response_metadata ?? result?.diagnosis?.gemini_response_metadata;
   const therapy = result?.therapy;
   const clarificationQuestions = clarification?.questions ?? [];
+  const showFinalDiagnosis = Boolean(finalDiagnosis && assessmentState !== "needs_clarification");
+  const showAssessmentPending = Boolean(finalDiagnosis && assessmentState === "needs_clarification");
   const clarificationReady = Boolean(
     result?.report &&
       clarification?.needed &&
@@ -44,15 +47,14 @@ export function ResultView({ error, result, onClarify }: ResultViewProps) {
 
       {result !== null && !error && (
         <div className="result-stack">
-          {finalDiagnosis && (
+          {showFinalDiagnosis && (
             <section className="result-card">
               <h3>Final Diagnosis</h3>
               <p className="result-card__headline">
                 {finalDiagnosis.diagnosis ?? "Unknown diagnosis"}
               </p>
               <p className="result-card__meta">
-                Source: {finalDiagnosis.source ?? "unknown"} | Confidence:{" "}
-                {finalDiagnosis.confidence ?? "n/a"}
+                Source: {finalDiagnosis.source ?? "unknown"} | Confidence: {finalDiagnosis.confidence ?? "n/a"}
               </p>
               {finalDiagnosis.reasoning && <p>{finalDiagnosis.reasoning}</p>}
               {!!finalDiagnosis.supporting_evidence?.length && (
@@ -62,6 +64,19 @@ export function ResultView({ error, result, onClarify }: ResultViewProps) {
                   ))}
                 </ul>
               )}
+            </section>
+          )}
+
+          {showAssessmentPending && (
+            <section className="result-card">
+              <h3>Assessment Pending</h3>
+              <p className="result-card__headline">
+                Clarification is needed before a final diagnosis is shown.
+              </p>
+              <p className="result-card__meta">
+                Interim leading label: {finalDiagnosis?.diagnosis ?? "Unknown assessment"}
+                {finalDiagnosis?.confidence !== undefined ? ` • confidence ${String(finalDiagnosis.confidence)}` : ""}
+              </p>
             </section>
           )}
 
