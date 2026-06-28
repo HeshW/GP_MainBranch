@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.venv311/
+.venv311_clean/
+.env
+presentation/
+Mego Merge/
+# AI Models & Data (Too large for Git)
+*.pth
+*.bin
+*.h5
+*.npy
+*.pkl
+*.safetensors
+*.index
+backend/artifacts/**
+!backend/artifacts/
+!backend/artifacts/**/.gitkeep
+data/samples/*
+# Dataset directories (do not commit large datasets or PHI)
+data/kaggleocrset/
+data/ocrdata/
+data/
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and temporary outputs
+logs/
+*.log
+pytest_run.log
+test-run.txt
+pytest_after_runtime.log
+
+# Editor / IDE
+.idea/
+.github/
+.github/*
+/docs
+# Local runtime artifacts
+.old_venvs/
+*.db
+*.sqlite3
+*.log
+
+# Ignore generated pytest cache
+.pytest_cache/
+
+# Web frontend
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Local API env (keep .env.example)
+backend/.env

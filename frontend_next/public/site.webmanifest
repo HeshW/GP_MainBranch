@@ -1,0 +1,17 @@
+{
+  "name": "نبضة - Nabda",
+  "short_name": "Nabda",
+  "description": "AI Care, Human Touch.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7fbff",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/nabda-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
