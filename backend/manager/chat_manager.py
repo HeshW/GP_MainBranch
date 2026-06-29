@@ -45,6 +45,7 @@ class ChatManager:
         openrouter_base_url: str = "https://openrouter.ai/api/v1",
         openrouter_site_url: Optional[str] = None,
         openrouter_app_name: str = "GP Medical Analysis",
+        openrouter_api_key: Optional[str] = None,
         gemini_api_key: Optional[str] = None,
         gemini_model_name: str = "gemini-2.5-flash-lite",
         enable_therapy: bool = False,
@@ -66,6 +67,7 @@ class ChatManager:
             openrouter_base_url=openrouter_base_url,
             openrouter_site_url=openrouter_site_url,
             openrouter_app_name=openrouter_app_name,
+            openrouter_api_key=openrouter_api_key,
             gemini_api_key=gemini_api_key,
             gemini_model_name=gemini_model_name,
             rag_top_k=rag_top_k,
@@ -82,6 +84,7 @@ class ChatManager:
             openrouter_base_url=openrouter_base_url,
             openrouter_site_url=openrouter_site_url,
             openrouter_app_name=openrouter_app_name,
+            openrouter_api_key=openrouter_api_key,
             gemini_api_key=gemini_api_key if gemini_api_key else "",
             gemini_model_name=gemini_model_name,
         )
@@ -95,6 +98,7 @@ class ChatManager:
             openrouter_base_url=openrouter_base_url,
             openrouter_site_url=openrouter_site_url,
             openrouter_app_name=openrouter_app_name,
+            openrouter_api_key=openrouter_api_key,
         )
         self._chat_sessions = ChatSessionStore()
         self._ocr_engine: Any | None = None

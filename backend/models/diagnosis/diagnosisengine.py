@@ -426,6 +426,7 @@ class DiagnosisEngine:
         openrouter_base_url: str = "https://openrouter.ai/api/v1",
         openrouter_site_url: Optional[str] = None,
         openrouter_app_name: str = "GP Medical Analysis",
+        openrouter_api_key: Optional[str] = None,
         gemini_api_key: Optional[str] = None,
         gemini_model_name: str = "gemini-2.5-flash-lite",
         rag_top_k: int = 5,
@@ -458,6 +459,7 @@ class DiagnosisEngine:
                 openrouter_base_url=openrouter_base_url,
                 openrouter_site_url=openrouter_site_url,
                 openrouter_app_name=openrouter_app_name,
+                openrouter_api_key=openrouter_api_key,
                 gemini_api_key=gemini_api_key,
                 gemini_model_name=gemini_model_name,
             )
@@ -478,6 +480,7 @@ class DiagnosisEngine:
                 openrouter_base_url=openrouter_base_url,
                 openrouter_site_url=openrouter_site_url,
                 openrouter_app_name=openrouter_app_name,
+                openrouter_api_key=openrouter_api_key,
             )
             if classifier_translate_arabic and translator_provider:
                 self._classifier_translator = ArabicToEnglishTranslator(
@@ -497,6 +500,7 @@ class DiagnosisEngine:
             openrouter_base_url=openrouter_base_url,
             openrouter_site_url=openrouter_site_url,
             openrouter_app_name=openrouter_app_name,
+            openrouter_api_key=openrouter_api_key,
         )
         if synthesis_provider:
             self._response_synthesizer = DiagnosisResponseSynthesizer(
@@ -508,6 +512,7 @@ class DiagnosisEngine:
                 openrouter_app_name=openrouter_app_name,
                 gemini_api_key=gemini_api_key,
                 gemini_model_name=gemini_model_name,
+                openrouter_api_key=openrouter_api_key,
             )
 
     @staticmethod

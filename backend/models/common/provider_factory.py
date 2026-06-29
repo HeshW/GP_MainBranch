@@ -36,15 +36,17 @@ def resolve_provider_config(
     llm_model_name: Optional[str] = None,
     gemini_api_key: Optional[str] = None,
     gemini_model_name: Optional[str] = None,
+    openrouter_api_key: Optional[str] = None,
 ) -> tuple[str, Optional[str], str]:
     provider_name = normalize_provider_name(llm_provider)
     llm_key = _clean(llm_api_key)
     gemini_key = _clean(gemini_api_key)
+    openrouter_key = _clean(openrouter_api_key)
 
     if provider_name == "gemini":
         resolved_api_key = llm_key or gemini_key
     else:
-        resolved_api_key = llm_key
+        resolved_api_key = llm_key or openrouter_key
 
     llm_model = _clean(llm_model_name)
     gemini_model = _clean(gemini_model_name) or DEFAULT_GEMINI_MODEL
@@ -69,6 +71,7 @@ def create_model_provider(
     openrouter_base_url: str = "https://openrouter.ai/api/v1",
     openrouter_site_url: Optional[str] = None,
     openrouter_app_name: str = "GP Medical Analysis",
+    openrouter_api_key: Optional[str] = None,
 ) -> tuple[str, Optional[BaseModelProvider], str]:
     provider_name, api_key, model_name = resolve_provider_config(
         llm_provider=llm_provider,
@@ -76,6 +79,7 @@ def create_model_provider(
         llm_model_name=llm_model_name,
         gemini_api_key=gemini_api_key,
         gemini_model_name=gemini_model_name,
+        openrouter_api_key=openrouter_api_key,
     )
 
     if not api_key:

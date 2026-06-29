@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     # Legacy compatibility aliases.
     gemini_api_key: Optional[str] = None
     gemini_model_name: str = "gemini-2.5-flash-lite"
+    openrouter_api_key: Optional[str] = None
 
     enable_therapy: bool = False
     rag_top_k: int = 5
@@ -89,6 +90,9 @@ class Settings(BaseSettings):
             return direct_key
         if self.resolved_llm_provider == "gemini":
             legacy_key = str(self.gemini_api_key or "").strip()
+            return legacy_key or None
+        if self.resolved_llm_provider == "openrouter":
+            legacy_key = str(self.openrouter_api_key or "").strip()
             return legacy_key or None
         return None
 

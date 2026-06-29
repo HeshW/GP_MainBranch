@@ -991,6 +991,7 @@ class MedicalRAGAssistant:
         openrouter_base_url: str = "https://openrouter.ai/api/v1",
         openrouter_site_url: Optional[str] = None,
         openrouter_app_name: str = "GP Medical Analysis",
+        openrouter_api_key: Optional[str] = None,
         gemini_api_key: Optional[str] = None,
         gemini_model_name: str = "gemini-2.5-flash-lite",
     ) -> None:
@@ -1006,6 +1007,7 @@ class MedicalRAGAssistant:
             openrouter_base_url=openrouter_base_url,
             openrouter_site_url=openrouter_site_url,
             openrouter_app_name=openrouter_app_name,
+            openrouter_api_key=openrouter_api_key,
         )
         self._translator = ArabicToEnglishTranslator(self._provider) if self._provider else None
 

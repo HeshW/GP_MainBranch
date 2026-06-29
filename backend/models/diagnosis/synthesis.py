@@ -25,6 +25,7 @@ class DiagnosisResponseSynthesizer:
         openrouter_base_url: str = "https://openrouter.ai/api/v1",
         openrouter_site_url: Optional[str] = None,
         openrouter_app_name: str = "GP Medical Analysis",
+        openrouter_api_key: Optional[str] = None,
     ) -> None:
         self.provider_name, self._provider, self.model_name = create_model_provider(
             llm_provider=llm_provider,
@@ -35,6 +36,7 @@ class DiagnosisResponseSynthesizer:
             openrouter_base_url=openrouter_base_url,
             openrouter_site_url=openrouter_site_url,
             openrouter_app_name=openrouter_app_name,
+            openrouter_api_key=openrouter_api_key,
         )
         self.api_key_valid = self._provider is not None
 
