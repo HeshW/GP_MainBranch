@@ -1,6 +1,9 @@
 import pytest
 
 from manager.runtime import run_async
+from manager.symptom_normalizer import build_normalized_symptom_text
+from manager.symptom_parser import parse_symptoms
+from manager.symptom_validator import validate_parsed
 from models.diagnosis.diagnosisengine import DiagnosisEngine, diagnose
 from models.diagnosis.text import build_combined_text
 
@@ -84,6 +87,143 @@ def test_classifier_becomes_primary_diagnosis_source(monkeypatch):
     assert out["final_diagnosis"]["diagnosis"] == "Influenza"
     assert out["decision_fusion"]["primary_source"] == "classifier"
     assert out["final_diagnosis"]["mode"] == "ai_primary"
+
+
+def test_stroke_like_out_of_scope_does_not_confidently_become_gbs():
+    class StubClassifier:
+        def predict(self, text):
+            return {
+                "predicted_label": "Guillain-Barré syndrome",
+                "confidence": 0.82,
+                "top_predictions": [
+                    {"label": "Guillain-Barré syndrome", "confidence": 0.82},
+                    {"label": "Myasthenia gravis", "confidence": 0.58},
+                ],
+            }
+
+    class StubRag:
+        async def query(self, patient_text, top_k=5, query_symptoms=None):
+            return {
+                "response": "retrieval",
+                "retrieved_cases": [
+                    {"pathology": "Guillain-Barré syndrome", "rerank_score": 0.77},
+                ],
+                "rag_confidence": {
+                    "level": "high",
+                    "usable_for_fusion": True,
+                    "scope_status": "supported_scope",
+                },
+                "rag_scope_status": "supported_scope",
+                "detected_out_of_scope_signals": [],
+            }
+
+    engine = DiagnosisEngine()
+    engine._classifier = StubClassifier()
+    engine._rag_assistant = StubRag()
+    out = run_async(
+        engine.diagnose(
+            {
+                "raw_text": "Sudden facial droop, arm weakness, and trouble speaking.",
+                "symptoms": ["weakness", "difficulty speaking"],
+                "labs": {},
+            }
+        )
+    )
+
+    assert out["final_diagnosis"]["source"] == "safety_scope_gate"
+    assert out["final_diagnosis"]["mode"] == "safe_fallback"
+    assert out["final_diagnosis"]["confidence"] < 0.55
+    assert "stroke_like_neurologic_emergency" in out["safety"]["unsupported_scope_signals"]
+    assert out["safety"]["emergency_attention_recommended"] is True
+
+
+def test_arabic_stable_angina_maps_to_cardiac_signals():
+    parsed = parse_symptoms("عندي ألم وضغط في الصدر مع المجهود ويتحسن مع الراحة")
+    validated = validate_parsed(parsed)
+    normalized_text = build_normalized_symptom_text(parsed, validated)
+
+    assert "chest pain" in normalized_text.lower()
+    assert "chest pressure" in normalized_text.lower()
+    assert "with exertion" in normalized_text.lower()
+    assert "improves with rest" in normalized_text.lower()
+
+
+def test_typo_noisy_pneumonia_maps_to_respiratory_signals():
+    parsed = parse_symptoms("feevr and prodctive coff with shortnes of breth and pleuritic chest pain")
+    validated = validate_parsed(parsed)
+
+    assert "fever" in validated["symptoms"]
+    assert "productive cough" in validated["symptoms"]
+    assert "shortness of breath" in validated["symptoms"]
+    assert "chest pain" in validated["symptoms"]
+
+
+def test_pe_context_is_not_dominated_by_localized_edema():
+    final = DiagnosisEngine._build_final_diagnosis(
+        findings=[
+            {
+                "condition": "Localized edema",
+                "confidence": "moderate",
+                "source": "symptom_rules",
+                "severity": "moderate",
+            }
+        ],
+        patient_symptoms=["shortness of breath", "leg swelling"],
+        report_text="Patient suddenly became short of breath after a long flight and one calf is swollen.",
+        classifier_prediction={
+            "predicted_label": "Pancreatic neoplasm",
+            "confidence": 0.35,
+            "top_predictions": [{"label": "Pancreatic neoplasm", "confidence": 0.35}],
+        },
+    )
+
+    assert final is not None
+    assert final["diagnosis"] == "Pulmonary embolism"
+
+
+def test_dystonic_medication_spasm_context_is_recognized():
+    final = DiagnosisEngine._build_final_diagnosis(
+        findings=[],
+        patient_symptoms=[],
+        report_text="Involuntary neck twisting and muscle spasms after starting a new nausea medication.",
+        classifier_prediction={
+            "predicted_label": "Chagas",
+            "confidence": 0.58,
+            "top_predictions": [{"label": "Chagas", "confidence": 0.58}],
+        },
+    )
+
+    assert final is not None
+    assert final["diagnosis"] == "Acute dystonic reactions"
+
+
+def test_confidence_is_reduced_when_classifier_and_rag_disagree():
+    calibrated = DiagnosisEngine._calibrate_final_diagnosis(
+        {
+            "diagnosis": "Pneumonia",
+            "confidence": 0.82,
+            "source": "classifier",
+            "mode": "ai_primary",
+            "rule_alignment": False,
+        },
+        candidates=[
+            {"label": "Pneumonia"},
+            {"label": "Unstable angina"},
+            {"label": "GERD"},
+        ],
+        findings=[],
+        rag_out={
+            "retrieved_cases": [{"pathology": "GERD", "rerank_score": 0.7}],
+            "rag_confidence": {"usable_for_fusion": True, "level": "moderate"},
+        },
+        classifier_prediction={"predicted_label": "Pneumonia", "confidence": 0.82},
+        report_text="uncertain symptoms",
+        patient_symptoms=[],
+        unsupported_scope_signals=[],
+    )
+
+    assert calibrated["confidence"] < 0.82
+    assert calibrated["confidence_calibration"]["reductions"]
 
 
 def test_classifier_is_preferred_over_retrieval_when_supportive():

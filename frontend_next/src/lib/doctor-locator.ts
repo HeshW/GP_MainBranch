@@ -1,116 +1,131 @@
-export type Doctor = {
-  id: number;
-  name: string;
-  specialty: string;
-  clinicName: string;
-  address: string;
-  city: string;
-  phone: string;
-  latitude: number;
-  longitude: number;
-  rating: number;
-  waitTime: string;
-};
+import type { StaticImageData } from "next/image";
 
 export type Coordinates = {
   latitude: number;
   longitude: number;
 };
 
-export const fakeDoctors: Doctor[] = [
-  {
-    id: 1,
-    name: "Dr. Omar Hassan",
-    specialty: "Internal Medicine",
-    clinicName: "BlueCare Medical Center",
-    address: "12 Nile Corniche, Garden City",
-    city: "Cairo",
-    phone: "+20 100 123 4567",
-    latitude: 30.0439,
-    longitude: 31.2357,
-    rating: 4.9,
-    waitTime: "15 min",
-  },
-  {
-    id: 2,
-    name: "Dr. Sara Khaled",
-    specialty: "Pediatrics",
-    clinicName: "Astra Family Clinic",
-    address: "45 Tahrir Street, Downtown",
-    city: "Cairo",
-    phone: "+20 100 222 3344",
-    latitude: 30.0488,
-    longitude: 31.2389,
-    rating: 4.8,
-    waitTime: "20 min",
-  },
-  {
-    id: 3,
-    name: "Dr. Ahmed Mostafa",
-    specialty: "Orthopedics",
-    clinicName: "North Point Clinic",
-    address: "8 El-Thawra Avenue, Heliopolis",
-    city: "Cairo",
-    phone: "+20 100 555 6677",
-    latitude: 30.0928,
-    longitude: 31.3235,
-    rating: 4.7,
-    waitTime: "30 min",
-  },
-  {
-    id: 4,
-    name: "Dr. Mona Youssef",
-    specialty: "Dermatology",
-    clinicName: "Riverfront Health",
-    address: "3 Corniche El-Nil, Zamalek",
-    city: "Cairo",
-    phone: "+20 100 777 8899",
-    latitude: 30.0589,
-    longitude: 31.2201,
-    rating: 4.85,
-    waitTime: "10 min",
-  },
-];
+export type Doctor = Coordinates & {
+  id: number;
+  name: string;
+  specialty: string;
+  rating: number;
+  price: number;
+  address: string;
+  area: string;
+  phone: string;
+  image: StaticImageData;
+  availableToday: boolean;
+  experienceYears: number;
+  searchAliases?: string[];
+};
 
-export function haversineDistanceKm(from: Coordinates, to: Coordinates) {
+export type RankedDoctor = {
+  doctor: Doctor;
+  distanceKm?: number;
+  score: number;
+};
+
+const normalize = (value: string) => value.trim().toLowerCase();
+
+export function calculateDistance(from: Coordinates, to: Coordinates) {
   const earthRadiusKm = 6371;
   const latitudeDelta = ((to.latitude - from.latitude) * Math.PI) / 180;
   const longitudeDelta = ((to.longitude - from.longitude) * Math.PI) / 180;
-
   const startLatitude = (from.latitude * Math.PI) / 180;
   const endLatitude = (to.latitude * Math.PI) / 180;
 
   const haversine =
-    Math.sin(latitudeDelta / 2) * Math.sin(latitudeDelta / 2) +
-    Math.sin(longitudeDelta / 2) * Math.sin(longitudeDelta / 2) * Math.cos(startLatitude) * Math.cos(endLatitude);
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.sin(longitudeDelta / 2) ** 2 * Math.cos(startLatitude) * Math.cos(endLatitude);
 
   return 2 * earthRadiusKm * Math.asin(Math.sqrt(haversine));
 }
 
-export function findNearestDoctor(location: Coordinates) {
-  const scoredDoctors = fakeDoctors.map((doctor) => ({
-    doctor,
-    distanceKm: haversineDistanceKm(location, doctor),
-  }));
+export function filterDoctors(doctors: Doctor[], searchTerm: string) {
+  const query = normalize(searchTerm);
 
-  scoredDoctors.sort((left, right) => left.distanceKm - right.distanceKm);
-  return scoredDoctors[0];
-}
-
-export function buildGoogleMapsDirectionsUrl(destination: Coordinates, origin?: Coordinates) {
-  const params = new URLSearchParams({
-    api: "1",
-    destination: `${destination.latitude},${destination.longitude}`,
-  });
-
-  if (origin) {
-    params.set("origin", `${origin.latitude},${origin.longitude}`);
+  if (!query) {
+    return doctors;
   }
 
-  return `https://www.google.com/maps/dir/?${params.toString()}`;
+  return doctors.filter((doctor) =>
+    [doctor.name, doctor.specialty, doctor.address, doctor.area, ...(doctor.searchAliases ?? [])]
+      .map(normalize)
+      .some((value) => value.includes(query)),
+  );
 }
 
-export function buildGoogleMapsDoctorSearchUrl(location: Coordinates, specialty = "doctor") {
-  const query = `${specialty || "doctor"} near ${location.latitude},${location.longitude}`;
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+export function rankDoctors(doctors: Doctor[], userLocation?: Coordinates): RankedDoctor[] {
+  if (doctors.length === 0) {
+    return [];
+  }
+
+  const withDistance = doctors.map((doctor) => ({
+    doctor,
+    distanceKm: userLocation ? calculateDistance(userLocation, doctor) : undefined,
+  }));
+
+  const distances = withDistance
+    .map((item) => item.distanceKm)
+    .filter((distance): distance is number => typeof distance === "number");
+  const maxDistance = Math.max(...distances, 1);
+  const prices = doctors.map((doctor) => doctor.price);
+  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
+  const priceRange = Math.max(maxPrice - minPrice, 1);
+
+  return withDistance
+    .map(({ doctor, distanceKm }) => {
+      const distanceScore =
+        typeof distanceKm === "number" ? Math.max(0, 1 - distanceKm / maxDistance) : 0;
+      const ratingScore = doctor.rating / 5;
+      const priceScore = 1 - (doctor.price - minPrice) / priceRange;
+
+      return {
+        doctor,
+        distanceKm,
+        score: distanceScore * 0.6 + ratingScore * 0.3 + priceScore * 0.1,
+      };
+    })
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+
+      if (typeof left.distanceKm === "number" && typeof right.distanceKm === "number") {
+        return left.distanceKm - right.distanceKm;
+      }
+
+      if (right.doctor.rating !== left.doctor.rating) {
+        return right.doctor.rating - left.doctor.rating;
+      }
+
+      return left.doctor.price - right.doctor.price;
+    });
 }
+
+export function getGoogleMapsUrl(doctor: Doctor, origin?: Coordinates) {
+  const destination = `${doctor.latitude},${doctor.longitude}`;
+
+  if (origin) {
+    const params = new URLSearchParams({
+      api: "1",
+      origin: `${origin.latitude},${origin.longitude}`,
+      destination,
+      travelmode: "driving",
+    });
+
+    return `https://www.google.com/maps/dir/?${params.toString()}`;
+  }
+
+  const params = new URLSearchParams({
+    api: "1",
+    query: `${doctor.name} ${doctor.address} ${destination}`,
+  });
+
+  return `https://www.google.com/maps/search/?${params.toString()}`;
+}
+
+export const haversineDistanceKm = calculateDistance;
+export const buildGoogleMapsDirectionsUrl = getGoogleMapsUrl;

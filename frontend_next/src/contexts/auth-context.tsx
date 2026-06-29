@@ -1,19 +1,18 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { fetchCurrentUser, loginUser, registerUser, type AuthUser } from "@/lib/api";
 import { readStorage, removeStorage, writeStorage } from "@/lib/storage";
 
-export type User = {
-  name: string;
-  email: string;
-};
+export type User = AuthUser;
 
 type AuthContextValue = {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
   isReady: boolean;
-  login: (user: User) => void;
+  login: (credentials: { email: string; password: string }) => Promise<void>;
+  register: (credentials: { name: string; email: string; password: string }) => Promise<void>;
   logout: () => void;
 };
 
@@ -26,14 +25,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(() =>
     readStorage<string | null>("next-ecomm-token", null),
   );
-  const [isReady] = useState(true);
+  const [isReady, setIsReady] = useState(false);
 
-  function login(nextUser: User) {
-    const nextToken = `demo-${Date.now()}`;
+  useEffect(() => {
+    let active = true;
+    if (!token) {
+      setIsReady(true);
+      return;
+    }
+
+    fetchCurrentUser(token)
+      .then((nextUser) => {
+        if (!active) return;
+        setUser(nextUser);
+        writeStorage("next-ecomm-user", nextUser);
+      })
+      .catch(() => {
+        if (!active) return;
+        logout();
+      })
+      .finally(() => {
+        if (active) setIsReady(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  function storeSession(nextUser: User, nextToken: string) {
     setUser(nextUser);
     setToken(nextToken);
     writeStorage("next-ecomm-user", nextUser);
     writeStorage("next-ecomm-token", nextToken);
+  }
+
+  async function login(credentials: { email: string; password: string }) {
+    const response = await loginUser(credentials);
+    storeSession(response.user, response.access_token);
+  }
+
+  async function register(credentials: { name: string; email: string; password: string }) {
+    const response = await registerUser(credentials);
+    storeSession(response.user, response.access_token);
   }
 
   function logout() {
@@ -50,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAuthenticated: Boolean(token),
       isReady,
       login,
+      register,
       logout,
     }),
     [isReady, token, user],

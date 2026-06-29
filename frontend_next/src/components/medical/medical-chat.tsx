@@ -3,13 +3,20 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  createChat,
+  deleteChat,
+  fetchChatMessages,
+  fetchChats,
   postChat,
   postChatStream,
   postClarification,
   postImage,
   postLabs,
   postSymptoms,
+  saveChatMessage,
+  type ChatSession,
 } from "@/lib/api";
+import { useAuth } from "@/contexts/auth-context";
 import { usePreferences } from "@/contexts/preferences-context";
 import { getCopy } from "@/lib/i18n";
 import type { AnalysisResponse, ChatMessage } from "@/lib/medical-types";
@@ -135,10 +142,15 @@ function AnalysisCard({ analysis }: { analysis: AnalysisResponse }) {
 }
 
 export function MedicalChat({ compact = false, initialPrompt, userName = "there" }: MedicalChatProps) {
+  const { token, logout } = useAuth();
   const { language } = usePreferences();
   const t = getCopy(language);
   const [sessionId] = useState(createSessionId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chats, setChats] = useState<ChatSession[]>([]);
+  const [activeChatId, setActiveChatId] = useState<number | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
   const [sendMode, setSendMode] = useState<SendMode>("auto");
   const [actionPanelOpen, setActionPanelOpen] = useState(false);
@@ -152,6 +164,62 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
+
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    setHistoryLoading(true);
+    fetchChats(token)
+      .then((items) => {
+        if (!active) return;
+        setChats(items);
+        setActiveChatId((current) => current ?? items[0]?.id ?? null);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setHistoryError(error instanceof Error ? error.message : "Unable to load chats.");
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (!token || !activeChatId) {
+      setMessages([]);
+      return;
+    }
+
+    let active = true;
+    setHistoryLoading(true);
+    fetchChatMessages(token, activeChatId)
+      .then((items) => {
+        if (!active) return;
+        setMessages(
+          items.map((item) => ({
+            id: `stored-${item.id}`,
+            role: item.role,
+            kind: "text",
+            content: item.content,
+          })),
+        );
+      })
+      .catch((error) => {
+        if (!active) return;
+        setHistoryError(error instanceof Error ? error.message : "Unable to load chat messages.");
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [activeChatId, token]);
 
   const hasAnalysis = useMemo(() => messages.some((item) => item.kind === "analysis"), [messages]);
   const hasStarted = messages.length > 0 || loading;
@@ -175,14 +243,43 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
     ]);
   };
 
+  const refreshChats = async () => {
+    if (!token) return;
+    const items = await fetchChats(token);
+    setChats(items);
+  };
+
+  const ensureChatSession = async () => {
+    if (!token) return null;
+    if (activeChatId) return activeChatId;
+    const chat = await createChat(token);
+    setChats((current) => [chat, ...current]);
+    return chat.id;
+  };
+
+  const persistTurn = async (userContent: string, assistantContent: string) => {
+    if (!token || !userContent.trim() || !assistantContent.trim()) return;
+    try {
+      const chatId = await ensureChatSession();
+      if (!chatId) return;
+      await saveChatMessage(token, chatId, { role: "user", content: userContent });
+      await saveChatMessage(token, chatId, { role: "assistant", content: assistantContent });
+      if (!activeChatId) setActiveChatId(chatId);
+      await refreshChats();
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : "Unable to save chat.");
+    }
+  };
+
   const addAnalysis = (analysis: AnalysisResponse) => {
+    const summary = summarizeAnalysis(analysis);
     setMessages((current) => [
       ...current,
       {
         id: createMessageId("assistant"),
         role: "assistant",
         kind: "analysis",
-        content: summarizeAnalysis(analysis),
+        content: summary,
         payload: analysis,
       },
     ]);
@@ -199,6 +296,8 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
     } else {
       setClarificationContext(null);
     }
+
+    return summary;
   };
 
   const setLastAssistantText = (content: string) => {
@@ -249,27 +348,34 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
   const runChatTurn = async (text: string) => {
     addMessage("assistant", "");
     let hasStreamedChunk = false;
+    let streamedContent = "";
 
     try {
       const streamedText = await postChatStream({ session_id: sessionId, message: text }, (chunk) => {
         hasStreamedChunk = true;
+        streamedContent += chunk;
         appendChunkToLastAssistant(chunk);
       });
 
       if (!hasStreamedChunk && !streamedText) {
         const fallback = await postChat({ session_id: sessionId, message: text });
         setLastAssistantText(fallback.response);
+        return fallback.response;
       }
+      return streamedText || streamedContent;
     } catch {
       if (!hasStreamedChunk) {
         try {
           const fallback = await postChat({ session_id: sessionId, message: text });
           setLastAssistantText(fallback.response);
+          return fallback.response;
         } catch (error) {
           const content = error instanceof Error ? error.message : String(error);
           setLastAssistantText(`Chat failed: ${content}`);
+          return `Chat failed: ${content}`;
         }
       }
+      return streamedContent;
     }
   };
 
@@ -298,25 +404,30 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
           diagnosis: clarificationContext.diagnosis,
           answers: answers.length ? answers : [trimmed],
         });
-        addAnalysis(analysis);
+        const assistantSummary = addAnalysis(analysis);
+        await persistTurn(userSummary || "Submitted", assistantSummary);
       } else if (action === "image" && imageFile) {
         const analysis = await postImage(imageFile);
-        addAnalysis(analysis);
+        const assistantSummary = addAnalysis(analysis);
+        await persistTurn(userSummary || "Submitted", assistantSummary);
         setImageFile(null);
       } else if (action === "labs") {
         const analysis = await postLabs({
           labs: parseLabsJson(labsJson),
           symptoms: trimmed || undefined,
         });
-        addAnalysis(analysis);
+        const assistantSummary = addAnalysis(analysis);
+        await persistTurn(userSummary || "Submitted", assistantSummary);
       } else if (action === "symptoms") {
         const analysis = await postSymptoms({
           text: trimmed,
           use_symptom_parser: useParser,
         });
-        addAnalysis(analysis);
+        const assistantSummary = addAnalysis(analysis);
+        await persistTurn(userSummary || "Submitted", assistantSummary);
       } else {
-        await runChatTurn(trimmed);
+        const assistantText = await runChatTurn(trimmed);
+        await persistTurn(userSummary || "Submitted", assistantText);
       }
     } catch (error) {
       const content = error instanceof Error ? error.message : String(error);
@@ -429,13 +540,96 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
     </div>
   );
 
+  const startNewChat = () => {
+    setActiveChatId(null);
+    setMessages([]);
+    setClarificationContext(null);
+    setComposerText("");
+    setHistoryError(null);
+  };
+
+  const removeChat = async (chatId: number) => {
+    if (!token) return;
+    try {
+      await deleteChat(token, chatId);
+      const nextChats = chats.filter((chat) => chat.id !== chatId);
+      setChats(nextChats);
+      if (activeChatId === chatId) {
+        setActiveChatId(nextChats[0]?.id ?? null);
+        if (!nextChats.length) setMessages([]);
+      }
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : "Unable to delete chat.");
+    }
+  };
+
+  const historySidebar = !compact ? (
+    <aside className="flex min-h-0 w-full flex-col border-b border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:w-72 md:border-b-0 md:border-r">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-[var(--brand-heading)]">Chats</p>
+        <button
+          type="button"
+          className="rounded-2xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[var(--brand-primary-strong)]"
+          onClick={startNewChat}
+        >
+          New Chat
+        </button>
+      </div>
+      {historyError ? (
+        <p className="mt-3 rounded-2xl bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">{historyError}</p>
+      ) : null}
+      <div className="mt-3 flex-1 space-y-2 overflow-y-auto">
+        {historyLoading && !chats.length ? (
+          <p className="px-2 py-3 text-sm text-[var(--brand-muted)]">Loading chats...</p>
+        ) : null}
+        {chats.map((chat) => (
+          <div key={chat.id} className="group flex items-center gap-2">
+            <button
+              type="button"
+              className={[
+                "min-w-0 flex-1 truncate rounded-2xl px-3 py-2 text-left text-sm font-medium transition",
+                activeChatId === chat.id
+                  ? "bg-[var(--brand-soft)] text-[var(--brand-primary)]"
+                  : "text-[var(--brand-text)] hover:bg-[var(--brand-soft)]",
+              ].join(" ")}
+              onClick={() => setActiveChatId(chat.id)}
+            >
+              {chat.title}
+            </button>
+            <button
+              type="button"
+              className="rounded-xl px-2 py-1 text-xs font-semibold text-[var(--brand-muted)] transition hover:bg-rose-50 hover:text-rose-700"
+              onClick={() => void removeChat(chat.id)}
+              aria-label={`Delete ${chat.title}`}
+            >
+              Delete
+            </button>
+          </div>
+        ))}
+        {!historyLoading && !chats.length ? (
+          <p className="px-2 py-3 text-sm text-[var(--brand-muted)]">No saved chats yet.</p>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        className="mt-3 rounded-2xl border border-[var(--brand-border)] px-3 py-2 text-sm font-semibold text-[var(--brand-primary)] transition hover:bg-[var(--brand-soft)]"
+        onClick={logout}
+      >
+        Logout
+      </button>
+    </aside>
+  ) : null;
+
   return (
     <section
       className={[
-        "flex h-full min-h-0 flex-col overflow-hidden bg-[var(--brand-bg)]",
+        "flex h-full min-h-0 overflow-hidden bg-[var(--brand-bg)]",
+        compact ? "flex-col" : "flex-col md:flex-row",
         compact ? "max-h-[78vh] rounded-3xl border border-[var(--brand-border)]" : "min-h-[calc(100svh-64px)]",
       ].join(" ")}
     >
+      {historySidebar}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       {!hasStarted ? (
         <div className="flex flex-1 flex-col items-center justify-end px-4 pb-10 pt-16 text-center sm:pb-14">
           <div className="mb-8 max-w-3xl">
@@ -523,6 +717,7 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
           </div>
         </>
       )}
+      </div>
     </section>
   );
 }

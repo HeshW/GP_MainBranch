@@ -1,72 +1,142 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import Image from "next/image";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { usePreferences } from "@/contexts/preferences-context";
-import { getCopy } from "@/lib/i18n";
 import {
-  buildGoogleMapsDirectionsUrl,
-  buildGoogleMapsDoctorSearchUrl,
-  fakeDoctors,
-  findNearestDoctor,
-  haversineDistanceKm,
+  filterDoctors,
+  getGoogleMapsUrl,
+  rankDoctors,
   type Coordinates,
   type Doctor,
+  type RankedDoctor,
 } from "@/lib/doctor-locator";
+import { fetchFakeDoctors } from "@/lib/mock-doctors";
+import { getCopy } from "@/lib/i18n";
 
 type LocationState =
-  | { status: "loading" }
-  | { status: "success"; coordinates: Coordinates; source: "default" | "browser" }
-  | { status: "error"; message: string };
+  | { status: "loading"; coordinates: Coordinates; source: "default"; message?: string }
+  | { status: "success"; coordinates: Coordinates; source: "browser" | "default"; message?: string }
+  | { status: "error"; coordinates: Coordinates; source: "default"; message: string };
 
 const defaultLocation: Coordinates = {
   latitude: 30.0444,
   longitude: 31.2357,
 };
 
-const specialties = ["Internal Medicine", "Pediatrics", "Dermatology", "Orthopedics"];
+const actionLinkClass =
+  "inline-flex min-h-11 items-center justify-center rounded-2xl bg-[var(--brand-primary)] px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-900/15 transition duration-200 hover:bg-[var(--brand-primary-strong)] hover:shadow-xl hover:shadow-blue-900/20";
 
-function initials(name: string) {
-  return name
-    .replace(/^Dr\.\s+/i, "")
-    .split(" ")
-    .map((part) => part[0])
-    .slice(0, 2)
-    .join("");
+function formatPrice(price: number) {
+  return `${price.toLocaleString("en-EG")} EGP`;
 }
 
-function DoctorListCard({ doctor, distanceKm }: { doctor: Doctor; distanceKm: number }) {
+function formatDistance(distanceKm?: number) {
+  if (typeof distanceKm !== "number") {
+    return null;
+  }
+
+  return distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`;
+}
+
+function LocationNotice({ locationState }: { locationState: LocationState }) {
+  if (locationState.status === "loading") {
+    return (
+      <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft)] px-4 py-3 text-sm font-semibold text-[var(--brand-primary)]">
+        Detecting your location...
+      </div>
+    );
+  }
+
+  if (locationState.status === "error") {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 shadow-sm">
+        {locationState.message} Search still works, and map buttons will open the selected clinic location.
+      </div>
+    );
+  }
+
+  if (locationState.source === "browser") {
+    return (
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900 shadow-sm">
+        Location ready. Results are ranked by distance, rating, and consultation fee.
+      </div>
+    );
+  }
+
   return (
-    <Card className="p-4">
-      <div className="flex gap-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--brand-soft)] text-sm font-bold text-[var(--brand-primary)]">
-          {initials(doctor.name)}
+    <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft)] px-4 py-3 text-sm text-[var(--brand-muted)]">
+      Using Cairo as the default area until browser location is available.
+    </div>
+  );
+}
+
+function DoctorCard({
+  rankedDoctor,
+  origin,
+  showDistance,
+}: {
+  rankedDoctor: RankedDoctor;
+  origin?: Coordinates;
+  showDistance: boolean;
+}) {
+  const { doctor, distanceKm } = rankedDoctor;
+  const distance = showDistance ? formatDistance(distanceKm) : null;
+
+  return (
+    <Card className="overflow-hidden p-0">
+      <div className="grid gap-0 sm:grid-cols-[168px_1fr]">
+        <div className="relative aspect-[4/3] min-h-44 bg-[var(--brand-soft)] sm:aspect-auto">
+          <Image
+            src={doctor.image}
+            alt={doctor.name}
+            fill
+            sizes="(min-width: 1024px) 170px, (min-width: 640px) 30vw, 100vw"
+            className="object-cover"
+          />
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
+
+        <div className="p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--brand-primary)]">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--brand-primary)]">
                 {doctor.specialty}
               </p>
-              <h3 className="mt-1 text-lg font-semibold text-[var(--brand-heading)]">{doctor.name}</h3>
+              <h3 className="mt-1 text-xl font-semibold text-[var(--brand-heading)]">{doctor.name}</h3>
             </div>
-            <span className="rounded-full bg-[var(--brand-soft)] px-3 py-1 text-xs font-bold text-[var(--brand-primary)]">
-              {doctor.rating.toFixed(1)}
+            <span
+              className={[
+                "rounded-full px-3 py-1 text-xs font-bold",
+                doctor.availableToday
+                  ? "bg-emerald-50 text-emerald-700"
+                  : "bg-slate-100 text-slate-600",
+              ].join(" ")}
+            >
+              {doctor.availableToday ? "Available today" : "Next availability"}
             </span>
           </div>
-          <p className="mt-1 text-sm font-medium text-[var(--brand-text)]">{doctor.clinicName}</p>
-          <p className="mt-2 text-sm leading-6 text-[var(--brand-muted)]">{doctor.address}</p>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-[var(--brand-muted)]">
-            <span className="rounded-full border border-[var(--brand-border)] px-3 py-1">
-              {distanceKm.toFixed(1)} km
-            </span>
-            <span className="rounded-full border border-[var(--brand-border)] px-3 py-1">
-              {doctor.waitTime} wait
-            </span>
-            <span className="rounded-full border border-[var(--brand-border)] px-3 py-1">
-              {doctor.city}
-            </span>
+
+          <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <InfoPill label="Rating" value={doctor.rating.toFixed(1)} />
+            <InfoPill label="Fee" value={formatPrice(doctor.price)} />
+            <InfoPill label="Experience" value={`${doctor.experienceYears} years`} />
+            {distance ? <InfoPill label="Distance" value={distance} /> : <InfoPill label="Area" value={doctor.area} />}
+          </div>
+
+          <p className="mt-4 text-sm leading-6 text-[var(--brand-muted)]">{doctor.address}</p>
+
+          <div className="mt-5 flex flex-wrap gap-3">
+            <a href={getGoogleMapsUrl(doctor, origin)} target="_blank" rel="noreferrer" className={actionLinkClass}>
+              Open in Google Maps
+            </a>
+            <a href={`tel:${doctor.phone.replace(/\s/g, "")}`}>
+              <Button type="button" variant="secondary">
+                Call
+              </Button>
+            </a>
           </div>
         </div>
       </div>
@@ -74,26 +144,59 @@ function DoctorListCard({ doctor, distanceKm }: { doctor: Doctor; distanceKm: nu
   );
 }
 
+function InfoPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-[var(--brand-soft)] px-3 py-2">
+      <span className="block text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--brand-primary)]">
+        {label}
+      </span>
+      <span className="mt-1 block text-sm font-semibold text-[var(--brand-heading)]">{value}</span>
+    </div>
+  );
+}
+
 export function DoctorLocator() {
   const { language } = usePreferences();
   const t = getCopy(language).doctors.locator;
-  const [specialty, setSpecialty] = useState("");
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [doctorError, setDoctorError] = useState("");
+  const [isLoadingDoctors, setIsLoadingDoctors] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
   const [locationState, setLocationState] = useState<LocationState>({
     status: "success",
     coordinates: defaultLocation,
     source: "default",
+    message: "Using Cairo as the default area until you allow browser location.",
   });
 
   function requestLocation() {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       setLocationState({
         status: "error",
+        coordinates: defaultLocation,
+        source: "default",
         message: t.unavailable,
       });
       return;
     }
 
-    setLocationState({ status: "loading" });
+    if (!window.isSecureContext) {
+      setLocationState({
+        status: "error",
+        coordinates: defaultLocation,
+        source: "default",
+        message:
+          "Browser location only works on HTTPS or localhost. Open the site on localhost, or use the fallback results.",
+      });
+      return;
+    }
+
+    setLocationState({
+      status: "loading",
+      coordinates: defaultLocation,
+      source: "default",
+    });
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setLocationState({
@@ -105,61 +208,93 @@ export function DoctorLocator() {
           },
         });
       },
-      () => {
+      (error) => {
+        const message =
+          error.code === error.PERMISSION_DENIED
+            ? "Location permission is blocked. Enable location for this site from the browser address bar, then try again."
+            : error.code === error.TIMEOUT
+              ? "Location lookup timed out. Check browser location access and try again."
+              : t.denied;
+
         setLocationState({
           status: "error",
-          message: t.denied,
+          coordinates: defaultLocation,
+          source: "default",
+          message,
         });
       },
       {
-        enableHighAccuracy: true,
-        timeout: 7000,
+        enableHighAccuracy: false,
+        timeout: 12000,
+        maximumAge: 60000,
       },
     );
   }
 
-  const activeLocation =
-    locationState.status === "success" ? locationState.coordinates : defaultLocation;
+  useEffect(() => {
+    let isMounted = true;
 
-  const nearestDoctor = useMemo(() => findNearestDoctor(activeLocation), [activeLocation]);
-  const scoredDoctors = useMemo(
-    () =>
-      fakeDoctors
-        .map((doctor) => ({
-          doctor,
-          distanceKm: haversineDistanceKm(activeLocation, doctor),
-        }))
-        .sort((left, right) => left.distanceKm - right.distanceKm),
-    [activeLocation],
+    fetchFakeDoctors()
+      .then((items) => {
+        if (isMounted) {
+          setDoctors(items);
+          setDoctorError("");
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setDoctorError("Doctors data could not be loaded.");
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoadingDoctors(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const specialtyOptions = useMemo(
+    () => Array.from(new Set(doctors.map((doctor) => doctor.specialty))).sort(),
+    [doctors],
   );
-  const mapsSearchUrl = buildGoogleMapsDoctorSearchUrl(activeLocation, specialty || "doctor");
-  const directionsUrl = nearestDoctor
-    ? buildGoogleMapsDirectionsUrl(nearestDoctor.doctor, activeLocation)
-    : "#";
+  const browserLocation =
+    locationState.status === "success" && locationState.source === "browser"
+      ? locationState.coordinates
+      : undefined;
+  const filteredDoctors = useMemo(() => filterDoctors(doctors, searchTerm), [doctors, searchTerm]);
+  const rankedDoctors = useMemo(
+    () => rankDoctors(filteredDoctors, locationState.coordinates),
+    [filteredDoctors, locationState.coordinates],
+  );
+  const recommendedDoctor = rankedDoctors[0];
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[0.92fr_1.08fr]">
+    <div className="grid gap-6 lg:grid-cols-[0.84fr_1.16fr]">
       <div className="space-y-5">
         <Card className="p-5 sm:p-6">
-          <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-[var(--brand-text)]">
-              {t.term}
-            </span>
-            <input
-              value={specialty}
-              onChange={(event) => setSpecialty(event.target.value)}
-              className="w-full rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft)] px-4 py-3 text-sm text-[var(--brand-text)] shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:bg-[var(--brand-surface)] focus:ring-4 focus:ring-blue-500/10"
-              placeholder="Search specialty, doctor, or clinic"
+          <div>
+            <label htmlFor="doctor-search" className="mb-2 block text-sm font-semibold text-[var(--brand-text)]">
+              Search doctors
+            </label>
+            <Input
+              id="doctor-search"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Name, specialty, address, or area"
             />
-          </label>
+          </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            {specialties.map((item) => (
+            {specialtyOptions.map((item) => (
               <button
                 key={item}
                 type="button"
                 className="rounded-full border border-[var(--brand-border)] bg-[var(--brand-surface)] px-3 py-2 text-xs font-semibold text-[var(--brand-text)] transition hover:border-[var(--brand-primary)] hover:bg-[var(--brand-soft)]"
-                onClick={() => setSpecialty(item)}
+                onClick={() => setSearchTerm(item)}
               >
                 {item}
               </button>
@@ -167,101 +302,62 @@ export function DoctorLocator() {
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <Button type="button" onClick={requestLocation}>
-              {t.useLocation}
+            <Button type="button" onClick={requestLocation} disabled={locationState.status === "loading"}>
+              {locationState.status === "loading" ? "Locating..." : t.useLocation}
             </Button>
-            <a href={mapsSearchUrl} target="_blank" rel="noreferrer" className="inline-flex">
-              <Button type="button" variant="secondary" className="w-full">
-                {t.maps}
-              </Button>
-            </a>
+            <Button type="button" variant="secondary" onClick={() => setSearchTerm("")}>
+              Clear search
+            </Button>
           </div>
 
-          {locationState.status === "loading" ? (
-            <div className="mt-5 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft)] px-4 py-3 text-sm text-[var(--brand-primary)] shadow-sm">
-              {t.loading}
-            </div>
-          ) : null}
-
-          {locationState.status === "error" ? (
-            <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
-              {locationState.message}
-            </div>
-          ) : null}
+          <div className="mt-5">
+            <LocationNotice locationState={locationState} />
+          </div>
         </Card>
 
-        <div className="relative overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-[var(--brand-soft)] p-5 shadow-[var(--brand-shadow)]">
-          <div className="absolute inset-0 opacity-60 [background-image:linear-gradient(var(--brand-border)_1px,transparent_1px),linear-gradient(90deg,var(--brand-border)_1px,transparent_1px)] [background-size:34px_34px]" />
-          <div className="relative min-h-56">
-            <div className="absolute left-[58%] top-[34%] h-4 w-4 rounded-full bg-[var(--brand-primary)] shadow-[0_0_0_10px_rgba(7,119,232,0.14)]" />
-            <div className="absolute left-[22%] top-[58%] h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_0_8px_rgba(52,211,153,0.14)]" />
-            <div className="absolute bottom-5 left-5 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface-glass)] px-4 py-3 text-sm shadow-sm backdrop-blur">
-              <p className="font-semibold text-[var(--brand-heading)]">Map preview</p>
-              <p className="mt-1 text-xs text-[var(--brand-muted)]">
-                Cairo default, updated when browser location is allowed.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {nearestDoctor ? (
+        {recommendedDoctor ? (
           <Card className="p-5 sm:p-6">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--brand-primary)]">
-                  {t.recommended}
-                </p>
-                <h2 className="mt-3 text-2xl font-semibold text-[var(--brand-heading)]">
-                  {nearestDoctor.doctor.name}
-                </h2>
-                <p className="mt-2 text-sm text-[var(--brand-muted)]">
-                  {nearestDoctor.doctor.specialty} {t.at} {nearestDoctor.doctor.clinicName}
-                </p>
-              </div>
-              <span className="rounded-full bg-[var(--brand-soft)] px-3 py-2 text-sm font-bold text-[var(--brand-primary)]">
-                {nearestDoctor.doctor.rating.toFixed(1)}
-              </span>
-            </div>
-
-            <div className="mt-5 grid gap-3 text-sm sm:grid-cols-3">
-              <div className="rounded-2xl bg-[var(--brand-soft)] px-4 py-3">
-                <span className="block text-xs font-semibold uppercase text-[var(--brand-primary)]">{t.wait}</span>
-                <span className="mt-1 block font-semibold text-[var(--brand-heading)]">
-                  {nearestDoctor.doctor.waitTime}
-                </span>
-              </div>
-              <div className="rounded-2xl bg-[var(--brand-soft)] px-4 py-3">
-                <span className="block text-xs font-semibold uppercase text-[var(--brand-primary)]">Distance</span>
-                <span className="mt-1 block font-semibold text-[var(--brand-heading)]">
-                  {nearestDoctor.distanceKm.toFixed(2)} km
-                </span>
-              </div>
-              <div className="rounded-2xl bg-[var(--brand-soft)] px-4 py-3">
-                <span className="block text-xs font-semibold uppercase text-[var(--brand-primary)]">{t.rating}</span>
-                <span className="mt-1 block font-semibold text-[var(--brand-heading)]">
-                  {nearestDoctor.doctor.rating.toFixed(1)}
-                </span>
-              </div>
-            </div>
-
-            <p className="mt-4 text-sm leading-6 text-[var(--brand-muted)]">
-              {nearestDoctor.doctor.address}, {nearestDoctor.doctor.city}
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--brand-primary)]">
+              Best match
             </p>
-
-            <div className="mt-5 flex flex-wrap gap-3">
-              <a href={directionsUrl} target="_blank" rel="noreferrer">
-                <Button type="button">{t.directions}</Button>
-              </a>
-              <a href={`tel:${nearestDoctor.doctor.phone.replace(/\s/g, "")}`}>
-                <Button type="button" variant="secondary">Call clinic</Button>
-              </a>
+            <div className="mt-4 flex gap-4">
+              <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-[var(--brand-soft)]">
+                <Image
+                  src={recommendedDoctor.doctor.image}
+                  alt={recommendedDoctor.doctor.name}
+                  fill
+                  sizes="80px"
+                  className="object-cover"
+                />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-2xl font-semibold text-[var(--brand-heading)]">
+                  {recommendedDoctor.doctor.name}
+                </h2>
+                <p className="mt-1 text-sm text-[var(--brand-muted)]">
+                  {recommendedDoctor.doctor.specialty} in {recommendedDoctor.doctor.area}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-[var(--brand-muted)]">
+                  <span className="rounded-full border border-[var(--brand-border)] px-3 py-1">
+                    {recommendedDoctor.doctor.rating.toFixed(1)} rating
+                  </span>
+                  <span className="rounded-full border border-[var(--brand-border)] px-3 py-1">
+                    {formatPrice(recommendedDoctor.doctor.price)}
+                  </span>
+                  {browserLocation ? (
+                    <span className="rounded-full border border-[var(--brand-border)] px-3 py-1">
+                      {formatDistance(recommendedDoctor.distanceKm)}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
             </div>
           </Card>
         ) : null}
       </div>
 
       <div className="space-y-4">
-        <div className="flex items-end justify-between gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--brand-primary)]">
               Nearby network
@@ -269,13 +365,34 @@ export function DoctorLocator() {
             <h2 className="mt-2 text-2xl font-semibold text-[var(--brand-heading)]">Available doctors</h2>
           </div>
           <span className="rounded-full border border-[var(--brand-border)] bg-[var(--brand-surface)] px-3 py-1 text-xs font-semibold text-[var(--brand-muted)]">
-            {scoredDoctors.length} results
+            {rankedDoctors.length} results
           </span>
         </div>
 
-        {scoredDoctors.map(({ doctor, distanceKm }) => (
-          <DoctorListCard key={doctor.id} doctor={doctor} distanceKm={distanceKm} />
-        ))}
+        {isLoadingDoctors ? (
+          <Card className="p-6 text-sm font-medium text-[var(--brand-muted)]">Loading doctors...</Card>
+        ) : null}
+
+        {doctorError ? (
+          <Card className="border-red-200 bg-red-50 p-6 text-sm font-medium text-red-800">{doctorError}</Card>
+        ) : null}
+
+        {!isLoadingDoctors && !doctorError && rankedDoctors.length === 0 ? (
+          <Card className="p-6 text-sm font-medium text-[var(--brand-muted)]">
+            No doctors match &quot;{searchTerm}&quot;. Try another name, specialty, or area.
+          </Card>
+        ) : null}
+
+        {!isLoadingDoctors && !doctorError
+          ? rankedDoctors.map((rankedDoctor) => (
+              <DoctorCard
+                key={rankedDoctor.doctor.id}
+                rankedDoctor={rankedDoctor}
+                origin={browserLocation}
+                showDistance={Boolean(browserLocation)}
+              />
+            ))
+          : null}
       </div>
     </div>
   );

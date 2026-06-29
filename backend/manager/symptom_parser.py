@@ -140,6 +140,66 @@ _ENCODED_SEQUENCE_PATTERN = re.compile(
 )
 _NEGATION_SCOPE_CHARS = 80
 
+_NOISY_TEXT_REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bfe+v+r\b", re.IGNORECASE), "fever"),
+    (re.compile(r"\bfeevr\b", re.IGNORECASE), "fever"),
+    (re.compile(r"\bcouhg\b|\bcoff\b", re.IGNORECASE), "cough"),
+    (re.compile(r"\bprodctive\b", re.IGNORECASE), "productive"),
+    (re.compile(r"\bpnemonia\b|\bpnumonia\b", re.IGNORECASE), "pneumonia"),
+    (re.compile(r"\bchst\s+pain\b", re.IGNORECASE), "chest pain"),
+    (re.compile(r"\bshrt\s+breath\b|\bshortnes\s+of\s+breth\b|\bshortness\s+breath\b", re.IGNORECASE), "shortness of breath"),
+    (re.compile(r"\bwhezing\b|\bwheezng\b", re.IGNORECASE), "wheezing"),
+    (re.compile(r"\bvom+iting\b", re.IGNORECASE), "vomiting"),
+    (re.compile(r"\bhart\b", re.IGNORECASE), "heart"),
+    (re.compile(r"\bpalpatations\b", re.IGNORECASE), "palpitations"),
+    (re.compile(r"\birregulr\b", re.IGNORECASE), "irregular"),
+    (re.compile(r"\bexersion\b", re.IGNORECASE), "exertion"),
+    (re.compile(r"\bbeter\b", re.IGNORECASE), "better"),
+    (re.compile(r"\bpresure\b", re.IGNORECASE), "pressure"),
+    (re.compile(r"\beyelidz\b", re.IGNORECASE), "eyelids"),
+    (re.compile(r"\bduble\b", re.IGNORECASE), "double"),
+    (re.compile(r"\bswalow\b", re.IGNORECASE), "swallow"),
+    (re.compile(r"\bnausea medication\b", re.IGNORECASE), "nausea medication antiemetic medication"),
+)
+
+_ARABIC_TEXT_EXPANSIONS: tuple[tuple[str, str], ...] = (
+    ("ألم وضغط في الصدر", " chest pain chest pressure "),
+    ("الم وضغط في الصدر", " chest pain chest pressure "),
+    ("ألم في الصدر", " chest pain "),
+    ("الم في الصدر", " chest pain "),
+    ("وجع في الصدر", " chest pain "),
+    ("ألم صدر", " chest pain "),
+    ("الم صدر", " chest pain "),
+    ("وجع صدر", " chest pain "),
+    ("ضغط في الصدر", " chest pressure "),
+    ("ضغط صدر", " chest pressure "),
+    ("مع المجهود", " with exertion "),
+    ("مع الجهد", " with exertion "),
+    ("أثناء المجهود", " with exertion "),
+    ("اثناء المجهود", " with exertion "),
+    ("يتحسن مع الراحة", " improves with rest "),
+    ("يرتاح مع الراحة", " improves with rest "),
+    ("يخف مع الراحة", " improves with rest "),
+    ("ضيق تنفس", " shortness of breath "),
+    ("صعوبة في التنفس", " shortness of breath "),
+    ("كحة", " cough "),
+    ("سعال", " cough "),
+    ("سخونية", " fever "),
+    ("حرارة", " fever "),
+    ("حمى", " fever "),
+    ("التهاب حلق", " sore throat "),
+    ("وجع حلق", " sore throat "),
+    ("ألم الحلق", " sore throat "),
+    ("الم الحلق", " sore throat "),
+    ("صداع", " headache "),
+    ("دوخة", " dizziness "),
+    ("ضعف في ناحية واحدة", " one-sided weakness "),
+    ("ضعف في ناحيه واحده", " one-sided weakness "),
+    ("صعوبة كلام", " difficulty speaking "),
+    ("صعوبة في الكلام", " difficulty speaking "),
+    ("تلعثم", " slurred speech "),
+)
+
 
 def _load_aliases() -> Dict[str, str]:
     if not ALIASES_PATH.exists():
@@ -461,11 +521,28 @@ def _strip_encoded_symptom_tails(raw_text: str) -> str:
     return cleaned.strip()
 
 
+def _normalize_noisy_and_multilingual_text(raw_text: str) -> str:
+    cleaned = raw_text
+    for pattern, replacement in _NOISY_TEXT_REPLACEMENTS:
+        cleaned = pattern.sub(replacement, cleaned)
+
+    expansions: List[str] = []
+    for phrase, expansion in _ARABIC_TEXT_EXPANSIONS:
+        if phrase in cleaned:
+            expansions.append(expansion.strip())
+    if expansions:
+        cleaned = f"{cleaned} {' '.join(dict.fromkeys(expansions))}"
+
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    return cleaned
+
+
 def parse_symptoms(raw_text: str) -> Dict[str, Any]:
     if not isinstance(raw_text, str):
         raise TypeError("raw_text must be a string")
 
-    cleaned_text = _strip_encoded_symptom_tails(raw_text)
+    stripped_text = _strip_encoded_symptom_tails(raw_text)
+    cleaned_text = _normalize_noisy_and_multilingual_text(stripped_text)
 
     labs = _extract_labs(cleaned_text)
     symptoms = _extract_symptoms(cleaned_text)

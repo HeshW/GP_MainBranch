@@ -14,3 +14,9 @@ pandas==1.5.3
 torch==2.11.0
 transformers==5.5.3
 datasets==4.8.4
+
+# Optional mental-health LoRA adapter serving stack
+peft==0.18.1
+accelerate>=1.12.0
+bitsandbytes>=0.48.0; platform_system != "Windows"
+safetensors>=0.7.0

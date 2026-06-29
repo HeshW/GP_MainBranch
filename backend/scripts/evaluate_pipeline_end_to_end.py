@@ -62,7 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("data/evaluation/pipeline_end_to_end_summary.json"),
+        default=Path("data/evaluation/archive/final_cleanup/pipeline/pipeline_end_to_end_summary.json"),
         help="Where to write the summary JSON report.",
     )
     parser.add_argument("--use-rag", action="store_true", default=settings.use_rag)

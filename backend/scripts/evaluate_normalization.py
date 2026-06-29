@@ -19,12 +19,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cases",
         type=Path,
-        default=Path("data/evaluation/normalization_cases.json"),
+        default=Path("data/evaluation/archive/final_cleanup/misc/normalization_cases.json"),
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("data/evaluation/normalization_summary.json"),
+        default=Path("data/evaluation/archive/final_cleanup/misc/normalization_summary.json"),
     )
     return parser.parse_args()
 

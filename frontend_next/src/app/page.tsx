@@ -5,6 +5,7 @@ import { DoctorTeam } from "@/components/doctors/doctor-team";
 import { MedicalHero } from "@/components/medical-hero";
 import { usePreferences } from "@/contexts/preferences-context";
 import { getCopy } from "@/lib/i18n";
+import Link from "next/link";
 
 export default function HomePage() {
   const { language } = usePreferences();
@@ -88,6 +89,18 @@ export default function HomePage() {
                   <p className="mt-3 text-sm leading-7 text-[var(--brand-muted)]">{description}</p>
                 </Card>
               ))}
+              <Link
+                href="/mental-support"
+                className="nabda-card-hover rounded-lg border border-[var(--brand-border)] bg-[var(--brand-surface)] p-5 shadow-[var(--brand-shadow)] transition"
+              >
+                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-lg bg-[var(--brand-soft)] text-sm font-black text-[var(--brand-primary)]">
+                  MH
+                </div>
+                <h2 className="text-xl font-semibold text-[var(--brand-heading)]">Mental Support</h2>
+                <p className="mt-3 text-sm leading-7 text-[var(--brand-muted)]">
+                  Talk to a supportive AI assistant for emotional support only, separate from diagnosis.
+                </p>
+              </Link>
             </div>
           </div>
         </section>

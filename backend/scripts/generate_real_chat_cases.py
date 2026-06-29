@@ -127,7 +127,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("data/evaluation/real_chat_cases.json"),
+        default=Path("data/evaluation/archive/real_chat/real_chat_cases.json"),
         help="Where to write the generated JSON case list.",
     )
     return parser.parse_args()

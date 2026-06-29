@@ -22,7 +22,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import health, pipeline, chat
+from app.database import init_db
+from app.routers import auth, chat, chat_history, health, mental_health, pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ async def lifespan(app: FastAPI):
     from manager.chat_manager import ChatManager
 
     s = get_settings()
+    init_db()
     use_rag, use_classifier, startup_warnings = _resolve_optional_ai_flags(s)
     for item in startup_warnings:
         logger.warning(item)
@@ -135,6 +137,7 @@ async def lifespan(app: FastAPI):
         "rag_enabled": use_rag,
         "finetuned_classifier_enabled": use_classifier,
         "therapy_enabled": bool(getattr(s, "enable_therapy", False)),
+        "mental_health_enabled": bool(getattr(s, "mental_health_enabled", True)),
     }
     yield
 
@@ -187,8 +190,11 @@ def create_app() -> FastAPI:
         return response
 
     application.include_router(health.router, prefix="/api/v1")
+    application.include_router(auth.router, prefix="/api/v1")
+    application.include_router(chat_history.router, prefix="/api/v1")
     application.include_router(pipeline.router, prefix="/api/v1")
     application.include_router(chat.router, prefix="/api/v1")
+    application.include_router(mental_health.router, prefix="/api/v1")
     return application
 
 

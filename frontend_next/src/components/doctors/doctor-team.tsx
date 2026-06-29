@@ -19,15 +19,19 @@ export const doctors: Doctor[] = [
   },
   {
     image: doctorTwo,
-    name: "Patricia Mcneel",
+    name: "Dr. Patricia Mcneel",
     specialty: "Pediatrician",
   },
   {
     image: doctorThree,
-    name: "William Khanna",
+    name: "Dr. William Khanna",
     specialty: "Throat Specialist",
   },
-  
+  {
+    image: doctorFour,
+    name: "Dr. Emily Parker",
+    specialty: "Therapist",
+  },
 ];
 
 type DoctorTeamProps = {

@@ -1,58 +1,70 @@
 # Project Artifacts Structure
 
-## Active Runtime Artifacts
+This document describes the current presentation-ready artifact layout after the final RAG, classifier, and pipeline evaluation cleanup.
 
-### FAISS RAG Index
+## Active Model Artifacts
 
-Active targeted FAISS bundle:
+Active RAG / FAISS bundle:
 
 ```text
 backend/artifacts/artifacts/faiss_data_targeted/
 ```
 
-Important files:
+Required files:
 
 - `medical_cases.index`
 - `metadata_mapping.pkl`
 - `metadata_mapping.pkl.sha256`
-- `metadata_mapping.json`
 - `index_info.json`
 
-Current validated counts:
-
-- FAISS vectors: `12025`
-- Metadata rows: `12025`
-- Unique pathologies: `49`
-
-Legacy/natural FAISS bundle retained for comparison/discussion:
-
-```text
-backend/artifacts/artifacts/faiss_data_natural/
-```
-
-## Active Classifier Artifacts
-
-Targeted classifier bundle:
+Active fine-tuned classifier bundle:
 
 ```text
 backend/artifacts/artifacts/clinicalbert_classifier_targeted/
 ```
 
-Natural classifier bundle retained for comparison/discussion:
+Required files:
+
+- `config.json`
+- `label_map.json`
+- `model.safetensors` or `pytorch_model.bin`
+- tokenizer files
+- `test_predictions.csv`
+
+Historical/natural comparison bundles are retained under:
 
 ```text
+backend/artifacts/artifacts/faiss_data_natural/
 backend/artifacts/artifacts/clinicalbert_classifier_natural/
 ```
 
-Important files commonly used by validation scripts:
+These are model artifacts and must not be deleted during cleanup.
 
-- `label_map.json`
-- `test_predictions.csv`
-- model/tokenizer files used by Hugging Face loaders
+Separate mental-health support LoRA adapter:
 
-## Active Evaluation Artifacts
+```text
+backend/artifacts/artifacts/mental_health/complaint_model_final/
+```
 
-Canonical RAG diagnostics:
+Earlier deployment notes referenced this requested default:
+
+```text
+backend/artifacts/mental-health/
+```
+
+Required files:
+
+- `adapter_config.json`
+- `adapter_model.safetensors`
+- `tokenizer.json`
+- `tokenizer_config.json`
+- `chat_template.jinja`
+- `README.md`
+
+This adapter is for `/api/v1/mental-health/chat` only. It is not part of the RAG, classifier, rules, or diagnosis-fusion pipeline.
+Artifact/config validation has passed. Full live generation is pending GPU validation.
+
+## Active RAG Diagnostics
 
 ```text
 data/evaluation/rag_diagnostics/
@@ -67,86 +79,169 @@ Final files:
 - `expanded_retrieval_eval_report.md`
 - `final_rag_investigation_report.md`
 
-Cleanup audit:
+Primary docs:
 
+- `backend/docs/RAG_SCOPE_AND_LIMITATIONS.md`
+
+## Active Classifier Diagnostics
+
+```text
+data/evaluation/classifier_diagnostics/
+```
+
+Final files:
+
+- `classifier_assets_report.md`
+- `classifier_assets_report.json`
+- `classifier_label_consistency_report.md`
+- `classifier_label_consistency_report.json`
+- `classifier_metrics_summary.json`
+- `classifier_classification_report.csv`
+- `classifier_confusion_matrix.csv`
+- `classifier_confusion_pairs.csv`
+- `classifier_eval_report.md`
+- `classifier_smoke_eval_summary.json`
+- `classifier_smoke_eval_cases.csv`
+- `classifier_smoke_eval_report.md`
+- `classifier_metrics_trustworthiness_report.md`
+- `data_leakage_report.md`
+- `data_leakage_report.json`
+- `dataset_split_report.md`
+- `dataset_split_report.json`
+- `test_predictions_provenance_report.md`
+
+Primary docs:
+
+- `backend/docs/CLASSIFIER_EVALUATION.md`
+
+## Active Pipeline Diagnostics
+
+```text
+data/evaluation/pipeline_diagnostics/
+```
+
+Final files:
+
+- `pipeline_architecture_report.md`
+- `pipeline_architecture_report.json`
+- `pipeline_eval_summary.json`
+- `pipeline_eval_cases.csv`
+- `pipeline_eval_report.md`
+- `pipeline_failure_analysis.md`
+- `pipeline_safety_report.md`
+- `pipeline_failure_fix_plan.md`
+- `pipeline_failure_fix_report.md`
+
+Case sets:
+
+```text
+data/evaluation/pipeline_diagnostics/cases/
+```
+
+Primary docs:
+
+- `backend/docs/PIPELINE_EVALUATION.md`
+
+## Active Mental-Health Diagnostics
+
+```text
+data/evaluation/mental_model_diagnostics/
+```
+
+Final files:
+
+- `mental_model_assets_report.md`
+- `mental_model_assets_report.json`
+- `mental_eval_summary.json`
+- `mental_eval_cases.csv`
+- `mental_eval_report.md`
+
+Primary docs:
+
+- `backend/docs/MENTAL_HEALTH_MODEL_DEPLOYMENT.md`
+
+Endpoint:
+
+```text
+POST /api/v1/mental-health/chat
+```
+
+## Cleanup Documentation
+
+- `backend/docs/CLEANUP_REPORT.md`
+- `backend/docs/FINAL_CLEANUP_REPORT.md`
+- `backend/docs/PROJECT_ARTIFACTS_STRUCTURE.md`
 - `data/evaluation/cleanup_audit_report.md`
 
-## Archived Evaluation Artifacts
+## Archive Layout
 
-Archive root:
+Historical artifacts are preserved under:
 
 ```text
 data/evaluation/archive/
 ```
 
-Archived groups:
+Current archive groups:
 
-- `archive/rag_diagnostics/`
-  - Old smoke runs, baseline/improved runs, DDXPlus-scope intermediate runs, duplicate expanded labeled runs, and intermediate coverage reports.
-- `archive/rag_natural/`
-  - Historical natural-RAG metrics, predictions, classification report, and confusion matrix.
-- `archive/discussion/`
-  - Thesis/discussion summary and classifier discussion outputs.
-- `archive/real_chat/`
-  - Real-chat generated cases and classifier/rules evaluation outputs.
+- `archive/rag_diagnostics/` - older baseline, improved, DDXPlus-scope, coverage, and labeled RAG retrieval runs.
+- `archive/rag_natural/` - historical natural RAG predictions and metrics.
+- `archive/discussion/` - thesis/discussion exports.
+- `archive/real_chat/` - generated real-chat cases and historical rules/classifier outputs.
+- `archive/final_cleanup/pipeline/` - duplicate run-labeled pipeline outputs from `pipeline_safety_parser_fix`; canonical copies remain active in `pipeline_diagnostics/`.
 
-These files are not active final RAG diagnostics, but they are intentionally preserved for discussion and reproducibility context.
+## Source Scripts
 
-## Active RAG Scripts
+Active health and evaluation scripts:
 
 ```text
-backend/scripts/evaluate_rag_retrieval_quality.py
-backend/scripts/verify_ddxplus_completeness.py
 backend/scripts/rag_health_check.py
+backend/scripts/classifier_health_check.py
+backend/scripts/pipeline_health_check.py
+backend/scripts/verify_ddxplus_completeness.py
+backend/scripts/evaluate_rag_retrieval_quality.py
+backend/scripts/evaluate_classifier_quality.py
+backend/scripts/evaluate_pipeline_quality.py
+backend/scripts/investigate_classifier_data_leakage.py
+backend/scripts/mental_model_health_check.py
+backend/scripts/evaluate_mental_health_model.py
 ```
 
-Supporting retained scripts:
-
-```text
-backend/scripts/evaluate_rag_confusion.py
-backend/scripts/build_discussion_evaluation.py
-backend/scripts/rebuild_faiss_from_ddx.py
-backend/scripts/train_clinicalbert_classifier.py
-```
-
-`rebuild_faiss_from_ddx.py` and `train_clinicalbert_classifier.py` are not part of normal cleanup or evaluation runs. Use them only when new data/labels are intentionally added.
-
-## Documentation Files
-
-RAG and cleanup documentation:
-
-- `backend/docs/RAG_SCOPE_AND_LIMITATIONS.md`
-- `backend/docs/CLEANUP_REPORT.md`
-- `backend/docs/PROJECT_ARTIFACTS_STRUCTURE.md`
-- `data/evaluation/cleanup_audit_report.md`
-
-Existing general setup/architecture docs:
-
-- `backend/docs/Architecture.md`
-- `backend/docs/Fresh_Machine_Setup.md`
+Historical or supporting scripts are retained for reproducibility and thesis discussion. Legacy defaults that used to write loose outputs directly under `data/evaluation/` now point to archive locations.
 
 ## Reproduction Commands
 
-Completeness:
+RAG:
 
 ```powershell
-python backend\scripts\verify_ddxplus_completeness.py
+python backend/scripts/verify_ddxplus_completeness.py
+python backend/scripts/evaluate_rag_retrieval_quality.py --case-set expanded --run-label expanded_final
+python backend/scripts/rag_health_check.py --pretty
 ```
 
-Expanded retrieval evaluation:
+Classifier:
 
 ```powershell
-python backend\scripts\evaluate_rag_retrieval_quality.py --case-set expanded --run-label expanded_final
+python backend/scripts/classifier_health_check.py --pretty
+python backend/scripts/evaluate_classifier_quality.py --pretty
+python backend/scripts/investigate_classifier_data_leakage.py --pretty
 ```
 
-Health check:
+Pipeline:
 
 ```powershell
-python backend\scripts\rag_health_check.py --pretty
+python backend/scripts/pipeline_health_check.py --pretty
+python backend/scripts/evaluate_pipeline_quality.py --run-label pipeline_safety_parser_fix --pretty
 ```
 
-Selected tests:
+Mental-health support:
 
 ```powershell
-python -m pytest backend\tests\test_rag.py backend\tests\test_rag_health_check.py backend\tests\test_startup_guardrails.py backend\tests\test_diagnosis_engine.py -q
+python backend/scripts/mental_model_health_check.py --pretty
+python backend/scripts/evaluate_mental_health_model.py --pretty
+```
+
+Selected validation:
+
+```powershell
+python -m pytest backend/tests/test_diagnosis_engine.py backend/tests/test_pipeline_quality_evaluation.py backend/tests/test_evaluate_pipeline_metrics.py backend/tests/test_rag_health_check.py -q
 ```
