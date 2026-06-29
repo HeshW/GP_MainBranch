@@ -20,11 +20,17 @@ Open http://localhost:3000.
 
 ## Backend Connection
 
-By default, Next proxies same-origin `/api/*` calls to:
+In development, the browser client calls FastAPI directly by default:
 
 ```bash
 http://127.0.0.1:8000
 ```
+
+This avoids the Next.js development rewrite proxy timing out on long-running AI
+pipeline requests. The same-origin `/api/*` rewrite in `next.config.ts` is
+disabled during `next dev` unless `ENABLE_NEXT_BACKEND_PROXY=true` is set, and
+remains available for production deployments that intentionally leave
+`NEXT_PUBLIC_API_URL` empty.
 
 Use one of these env vars if the backend runs elsewhere:
 

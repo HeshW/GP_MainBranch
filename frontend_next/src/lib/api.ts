@@ -1,6 +1,8 @@
 import type { AnalysisResponse, MetaInfo } from "./medical-types";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+const DEFAULT_API_BASE = process.env.NODE_ENV === "development" ? "http://127.0.0.1:8000" : "";
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_BASE).replace(/\/$/, "");
+const REQUEST_TIMEOUT_MS = 150_000;
 const SERVICE_API_KEY = (process.env.NEXT_PUBLIC_API_KEY ?? "").trim();
 
 type ChatRequest = {
@@ -35,6 +37,25 @@ function extractError(data: unknown, res: Response): string {
   return res.statusText || "Request failed";
 }
 
+async function fetchApi(input: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: init?.signal ?? controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("The medical analysis request timed out. Please try a shorter prompt or retry.");
+    }
+    throw new Error(`Could not reach the medical API at ${API_BASE || "the current origin"}.`);
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
 function consumeSseEventBlock(
   eventBlock: string,
   onChunk: (chunk: string) => void,
@@ -54,7 +75,7 @@ function consumeSseEventBlock(
 }
 
 export async function fetchMeta(): Promise<MetaInfo> {
-  const res = await fetch(`${API_BASE}/api/v1/meta`, {
+  const res = await fetchApi(`${API_BASE}/api/v1/meta`, {
     headers: withServiceApiKey(),
   });
   const data = await parseJson(res);
@@ -66,7 +87,7 @@ export async function postLabs(body: {
   labs: Record<string, unknown>;
   symptoms?: string;
 }): Promise<AnalysisResponse> {
-  const res = await fetch(`${API_BASE}/api/v1/pipeline/labs`, {
+  const res = await fetchApi(`${API_BASE}/api/v1/pipeline/labs`, {
     method: "POST",
     headers: withServiceApiKey({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
@@ -80,7 +101,7 @@ export async function postImage(file: File): Promise<AnalysisResponse> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const res = await fetch(`${API_BASE}/api/v1/pipeline/image`, {
+  const res = await fetchApi(`${API_BASE}/api/v1/pipeline/image`, {
     method: "POST",
     headers: withServiceApiKey(),
     body: formData,
@@ -94,7 +115,7 @@ export async function postSymptoms(body: {
   text: string;
   use_symptom_parser: boolean;
 }): Promise<AnalysisResponse> {
-  const res = await fetch(`${API_BASE}/api/v1/pipeline/symptoms`, {
+  const res = await fetchApi(`${API_BASE}/api/v1/pipeline/symptoms`, {
     method: "POST",
     headers: withServiceApiKey({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
@@ -110,7 +131,7 @@ export async function postClarification(body: {
   answers: string[];
   low_confidence_threshold?: number;
 }): Promise<AnalysisResponse> {
-  const res = await fetch(`${API_BASE}/api/v1/pipeline/diagnosis/clarify`, {
+  const res = await fetchApi(`${API_BASE}/api/v1/pipeline/diagnosis/clarify`, {
     method: "POST",
     headers: withServiceApiKey({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
@@ -121,7 +142,7 @@ export async function postClarification(body: {
 }
 
 export async function postChat(body: ChatRequest): Promise<{ response: string }> {
-  const res = await fetch(`${API_BASE}/api/v1/chat`, {
+  const res = await fetchApi(`${API_BASE}/api/v1/chat`, {
     method: "POST",
     headers: withServiceApiKey({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
@@ -135,7 +156,7 @@ export async function postChatStream(
   body: ChatRequest,
   onChunk: (chunk: string) => void,
 ): Promise<string> {
-  const res = await fetch(`${API_BASE}/api/v1/chat/stream`, {
+  const res = await fetchApi(`${API_BASE}/api/v1/chat/stream`, {
     method: "POST",
     headers: withServiceApiKey({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),

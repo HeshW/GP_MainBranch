@@ -4,6 +4,8 @@ FastAPI layer over `manager.ChatManager` for OCR and AI-first diagnosis fusion.
 
 Therapy generation is feature-flagged and disabled by default (`ENABLE_THERAPY=false`).
 When disabled, pipeline responses keep the `therapy` key with a compatibility placeholder payload.
+Long-running pipeline requests are capped by `PIPELINE_TIMEOUT_SECONDS` and return a JSON `504`
+instead of leaving the frontend proxy with a dropped upstream socket.
 
 ## Run (from repository root)
 

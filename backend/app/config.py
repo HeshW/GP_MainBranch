@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     api_title: str = "GP Medical Analysis API"
     api_version: str = "1.0.0"
     max_upload_bytes: int = 10 * 1024 * 1024
+    pipeline_timeout_seconds: float = 120.0
     require_service_api_key: bool = False
     service_api_key: Optional[str] = None
     cors_origins: str = (

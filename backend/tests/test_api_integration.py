@@ -49,6 +49,22 @@ class _StubManager:
     async def run_ocr_only(self, image):
         return {"status": "ok", "ocr": {"raw_text": "stub", "image": str(image)}}
 
+    async def run_from_symptoms(self, text, *, low_confidence_threshold=0.7):
+        return {
+            "status": "ok",
+            "report": {
+                "raw_text": text,
+                "labs": {},
+                "symptoms": ["fatigue"],
+            },
+            "diagnosis": {"summary": "stub symptom diagnosis"},
+            "therapy": {"therapy_plan": "stub therapy"},
+            "parsed": {"raw_text": text},
+            "validated": {"symptoms": ["fatigue"]},
+            "normalized_text": text,
+            "review_required": False,
+        }
+
     async def run_clarification(self, report, answers, *, prior_diagnosis=None, low_confidence_threshold=0.7):
         return {
             "status": "ok",
@@ -106,6 +122,20 @@ def test_pipeline_labs_contract(monkeypatch):
     assert payload["status"] == "ok"
     assert "diagnosis" in payload
     assert "therapy" in payload
+
+
+def test_pipeline_symptoms_contract(monkeypatch):
+    with _build_client(monkeypatch) as client:
+        response = client.post(
+            "/api/v1/pipeline/symptoms",
+            json={"text": "I have fatigue and dizziness", "use_symptom_parser": True},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert "diagnosis" in payload
+    assert payload["parsed"]["raw_text"] == "I have fatigue and dizziness"
 
 
 def test_chat_and_stream_contract(monkeypatch):

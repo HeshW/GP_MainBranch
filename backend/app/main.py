@@ -71,6 +71,31 @@ def _resolve_optional_ai_flags(settings) -> tuple[bool, bool, list[str]]:
     return use_rag, use_classifier, warnings
 
 
+def _chat_manager_kwargs(settings, *, use_rag: bool, use_classifier: bool) -> dict:
+    return {
+        "use_rag": use_rag,
+        "faiss_index_dir": getattr(settings, "faiss_index_dir", None),
+        "clinicalbert_model_dir": getattr(settings, "clinicalbert_model_dir", None),
+        "allow_unsafe_pickle_metadata": bool(getattr(settings, "allow_unsafe_pickle_metadata", False)),
+        "llm_provider": getattr(settings, "resolved_llm_provider", getattr(settings, "llm_provider", "gemini")),
+        "llm_api_key": getattr(settings, "resolved_llm_api_key", getattr(settings, "llm_api_key", None)),
+        "llm_model_name": getattr(settings, "resolved_llm_model_name", getattr(settings, "llm_model_name", None)),
+        "openrouter_base_url": getattr(settings, "openrouter_base_url", "https://openrouter.ai/api/v1"),
+        "openrouter_site_url": getattr(settings, "openrouter_site_url", None),
+        "openrouter_app_name": getattr(settings, "openrouter_app_name", "GP Medical Analysis"),
+        "openrouter_api_key": getattr(settings, "openrouter_api_key", None),
+        "gemini_api_key": getattr(settings, "gemini_api_key", None),
+        "gemini_model_name": getattr(settings, "gemini_model_name", "gemini-2.5-flash-lite"),
+        "enable_therapy": bool(getattr(settings, "enable_therapy", False)),
+        "rag_top_k": getattr(settings, "rag_top_k", 5),
+        "rag_translate_arabic": bool(getattr(settings, "rag_translate_arabic", True)),
+        "use_finetuned_classifier": use_classifier,
+        "finetuned_model_dir": getattr(settings, "finetuned_model_dir", None),
+        "classifier_max_length": getattr(settings, "classifier_max_length", 256),
+        "classifier_translate_arabic": bool(getattr(settings, "classifier_translate_arabic", True)),
+    }
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from manager.chat_manager import ChatManager
@@ -81,55 +106,13 @@ async def lifespan(app: FastAPI):
         logger.warning(item)
 
     try:
-        app.state.chat_manager = ChatManager(
-            use_rag=use_rag,
-            faiss_index_dir=s.faiss_index_dir,
-            clinicalbert_model_dir=s.clinicalbert_model_dir,
-            allow_unsafe_pickle_metadata=s.allow_unsafe_pickle_metadata,
-            llm_provider=getattr(s, "resolved_llm_provider", getattr(s, "llm_provider", "gemini")),
-            llm_api_key=getattr(s, "resolved_llm_api_key", getattr(s, "llm_api_key", None)),
-            llm_model_name=getattr(s, "resolved_llm_model_name", getattr(s, "llm_model_name", None)),
-            openrouter_base_url=getattr(s, "openrouter_base_url", "https://openrouter.ai/api/v1"),
-            openrouter_site_url=getattr(s, "openrouter_site_url", None),
-            openrouter_app_name=getattr(s, "openrouter_app_name", "GP Medical Analysis"),
-            openrouter_api_key=s.openrouter_api_key,
-            gemini_api_key=s.gemini_api_key,
-            gemini_model_name=getattr(s, "gemini_model_name", "gemini-2.5-flash-lite"),
-            enable_therapy=bool(getattr(s, "enable_therapy", False)),
-            rag_top_k=s.rag_top_k,
-            rag_translate_arabic=s.rag_translate_arabic,
-            use_finetuned_classifier=use_classifier,
-            finetuned_model_dir=s.finetuned_model_dir,
-            classifier_max_length=s.classifier_max_length,
-            classifier_translate_arabic=s.classifier_translate_arabic,
-        )
+        app.state.chat_manager = ChatManager(**_chat_manager_kwargs(s, use_rag=use_rag, use_classifier=use_classifier))
     except Exception as exc:
         logger.exception(
             "ChatManager advanced initialization failed; continuing in degraded mode. error=%s",
             exc,
         )
-        app.state.chat_manager = ChatManager(
-            use_rag=False,
-            faiss_index_dir=s.faiss_index_dir,
-            clinicalbert_model_dir=s.clinicalbert_model_dir,
-            allow_unsafe_pickle_metadata=s.allow_unsafe_pickle_metadata,
-            llm_provider=getattr(s, "resolved_llm_provider", getattr(s, "llm_provider", "gemini")),
-            llm_api_key=getattr(s, "resolved_llm_api_key", getattr(s, "llm_api_key", None)),
-            llm_model_name=getattr(s, "resolved_llm_model_name", getattr(s, "llm_model_name", None)),
-            openrouter_base_url=getattr(s, "openrouter_base_url", "https://openrouter.ai/api/v1"),
-            openrouter_site_url=getattr(s, "openrouter_site_url", None),
-            openrouter_app_name=getattr(s, "openrouter_app_name", "GP Medical Analysis"),
-            openrouter_api_key=s.openrouter_api_key,
-            gemini_api_key=s.gemini_api_key,
-            gemini_model_name=getattr(s, "gemini_model_name", "gemini-2.5-flash-lite"),
-            enable_therapy=bool(getattr(s, "enable_therapy", False)),
-            rag_top_k=s.rag_top_k,
-            rag_translate_arabic=s.rag_translate_arabic,
-            use_finetuned_classifier=False,
-            finetuned_model_dir=s.finetuned_model_dir,
-            classifier_max_length=s.classifier_max_length,
-            classifier_translate_arabic=s.classifier_translate_arabic,
-        )
+        app.state.chat_manager = ChatManager(**_chat_manager_kwargs(s, use_rag=False, use_classifier=False))
         use_rag = False
         use_classifier = False
 
