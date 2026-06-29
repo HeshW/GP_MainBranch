@@ -9,6 +9,7 @@ import { getCopy } from "@/lib/i18n";
 const links = [
   { href: "/", key: "home" },
   { href: "/chatbot", key: "assistant" },
+  { href: "/mental-support", key: "assistant", label: "Mental Support" },
   { href: "/doctors", key: "doctors" },
   { href: "/services", key: "services" },
   { href: "/contact", key: "contact" },
@@ -43,7 +44,7 @@ export function Navbar() {
                     : "text-[var(--brand-muted)] hover:bg-[var(--brand-soft)] hover:text-[var(--brand-heading)]"
                 }`}
               >
-                {t.nav[link.key]}
+                {"label" in link ? link.label : t.nav[link.key]}
               </Link>
             );
           })}

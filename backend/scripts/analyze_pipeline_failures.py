@@ -12,7 +12,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("data/evaluation/pipeline_failure_analysis.json"),
+        default=Path("data/evaluation/archive/final_cleanup/misc/pipeline_failure_analysis.json"),
     )
     return parser.parse_args()
 

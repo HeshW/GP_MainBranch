@@ -140,6 +140,36 @@ class DiagnosisEngine:
         "abdominal pain",
         "sore throat",
     }
+    UNSUPPORTED_SCOPE_PATTERNS = {
+        "stroke_like_neurologic_emergency": (
+            "facial droop",
+            "face droop",
+            "face drooping",
+            "arm weakness",
+            "slurred speech",
+            "trouble speaking",
+            "one sided weakness",
+            "one-sided weakness",
+            "sudden weakness on one side",
+            "weakness on one side",
+            "difficulty speaking",
+        ),
+        "pregnancy_related_emergency": (
+            "pregnant",
+            "pregnancy",
+            "vaginal bleeding",
+            "lower abdominal cramps",
+        ),
+        "trauma_or_orthopedic_injury": (
+            "twisted",
+            "twisting it",
+            "injury",
+            "trauma",
+            "after a fall",
+            "football",
+            "swollen knee",
+        ),
+    }
     FOLLOW_UP_QUESTION_BANK = (
         {
             "keywords": ("gerd", "reflux", "gastroesophageal"),
@@ -581,6 +611,148 @@ class DiagnosisEngine:
         normalized = str(confidence or "").strip().lower()
         return DiagnosisEngine.CONFIDENCE_SCORES.get(normalized, 0.0)
 
+    @classmethod
+    def _detect_unsupported_scope_signals(
+        cls,
+        report_text: str,
+        patient_symptoms: list[str],
+    ) -> list[str]:
+        normalized_context = cls._normalize_label(
+            " ".join([str(report_text or ""), " ".join(patient_symptoms or [])])
+        )
+        detected: list[str] = []
+        for signal, patterns in cls.UNSUPPORTED_SCOPE_PATTERNS.items():
+            if any(cls._normalize_label(pattern) in normalized_context for pattern in patterns):
+                detected.append(signal)
+        return detected
+
+    @classmethod
+    def _build_unsupported_scope_fallback(
+        cls,
+        unsupported_scope_signals: list[str],
+    ) -> Dict[str, Any]:
+        signal_labels = ", ".join(dict.fromkeys(unsupported_scope_signals))
+        emergency = any(
+            signal in {"stroke_like_neurologic_emergency", "pregnancy_related_emergency"}
+            for signal in unsupported_scope_signals
+        )
+        return {
+            "diagnosis": (
+                "Unsupported emergency red-flag presentation"
+                if emergency
+                else "Unsupported out-of-scope presentation"
+            ),
+            "confidence": 0.32,
+            "source": "safety_scope_gate",
+            "mode": "safe_fallback",
+            "reasoning": (
+                "Input contains red-flag or unsupported clinical features outside the current "
+                "49-label DDXPlus diagnosis universe; avoiding a confident in-scope diagnosis."
+            ),
+            "supporting_evidence": [
+                f"Unsupported scope signals: {signal_labels}",
+                "Professional medical evaluation is recommended urgently for red-flag symptoms.",
+            ],
+            "rule_alignment": False,
+            "scope_status": "out_of_scope_emergency_red_flag" if emergency else "out_of_scope_or_low_confidence",
+            "confidence_calibration": {
+                "original_confidence": None,
+                "calibrated_confidence": 0.32,
+                "reductions": [
+                    {
+                        "reason": "unsupported_scope_red_flag",
+                        "signals": list(dict.fromkeys(unsupported_scope_signals)),
+                    }
+                ],
+            },
+        }
+
+    @classmethod
+    def _calibrate_final_diagnosis(
+        cls,
+        final_diagnosis: Optional[Dict[str, Any]],
+        *,
+        candidates: list[Dict[str, Any]],
+        findings: list[Dict[str, Any]],
+        rag_out: Optional[Dict[str, Any]],
+        classifier_prediction: Optional[Dict[str, Any]],
+        report_text: str,
+        patient_symptoms: list[str],
+        unsupported_scope_signals: list[str],
+    ) -> Optional[Dict[str, Any]]:
+        if unsupported_scope_signals:
+            return cls._build_unsupported_scope_fallback(unsupported_scope_signals)
+        if not final_diagnosis:
+            return final_diagnosis
+
+        calibrated = dict(final_diagnosis)
+        original_confidence = cls._normalize_confidence(calibrated.get("confidence"))
+        confidence = original_confidence
+        reductions: list[Dict[str, Any]] = []
+        normalized_final_label = cls._normalize_label(str(calibrated.get("diagnosis", "")))
+        classifier_label = cls._normalize_label(
+            str((classifier_prediction or {}).get("predicted_label", ""))
+        )
+        rag_labels = [
+            cls._normalize_label(str(item.get("pathology", "")))
+            for item in (rag_out or {}).get("retrieved_cases", []) or []
+            if str(item.get("pathology", "")).strip()
+        ]
+        rag_top_label = rag_labels[0] if rag_labels else ""
+        rule_conditions = [str(item.get("condition", "")) for item in findings if str(item.get("condition", "")).strip()]
+        parser_signal_count = len([item for item in patient_symptoms if str(item).strip()])
+        parser_signal_count += len((re.findall(r"\b[A-Za-z]{4,}\b", str(report_text or "")) or [])[:2]) if not patient_symptoms else 0
+        final_sources = set(calibrated.get("source", "").split("_"))
+        final_source = str(calibrated.get("source", ""))
+
+        if classifier_label and rag_top_label and not cls._labels_overlap(classifier_label, rag_top_label):
+            confidence -= 0.10
+            reductions.append(
+                {
+                    "reason": "classifier_rag_disagreement",
+                    "classifier_label": classifier_label,
+                    "rag_top_label": rag_top_label,
+                }
+            )
+
+        if not findings and final_source in {"classifier", "rag", "rag_retrieval"}:
+            confidence -= 0.06
+            reductions.append({"reason": "single_ai_component_without_rule_support"})
+
+        rag_confidence = (rag_out or {}).get("rag_confidence") or {}
+        if rag_confidence and not rag_confidence.get("usable_for_fusion", True):
+            confidence -= 0.08
+            reductions.append({"reason": "rag_low_confidence_or_out_of_scope", "rag_confidence": rag_confidence})
+
+        if parser_signal_count == 0:
+            confidence -= 0.10
+            reductions.append({"reason": "low_parser_signal"})
+
+        if rule_conditions and not calibrated.get("rule_alignment") and confidence >= 0.70:
+            confidence -= 0.08
+            reductions.append({"reason": "rule_safety_not_aligned", "rule_conditions": rule_conditions})
+
+        candidate_labels = [
+            cls._normalize_label(str(item.get("label", "")))
+            for item in candidates[:5]
+            if str(item.get("label", "")).strip()
+        ]
+        if normalized_final_label and candidate_labels.count(normalized_final_label) == 1 and len(set(candidate_labels[:3])) >= 3:
+            confidence -= 0.04
+            reductions.append({"reason": "weak_candidate_consensus"})
+
+        confidence = max(0.20, min(confidence, original_confidence))
+        calibrated["confidence"] = round(confidence, 2)
+        if reductions:
+            calibrated["confidence_calibration"] = {
+                "original_confidence": round(original_confidence, 2),
+                "calibrated_confidence": calibrated["confidence"],
+                "reductions": reductions,
+            }
+            if calibrated["confidence"] < 0.55 and calibrated.get("mode") == "ai_primary":
+                calibrated["mode"] = "ai_low_confidence"
+        return calibrated
+
     @staticmethod
     def _labels_overlap(left: str, right: str) -> bool:
         left_normalized = str(left or "").strip().lower()
@@ -770,6 +942,18 @@ class DiagnosisEngine:
                 "long flight",
             )
         )
+        pulmonary_embolism_context = (
+            any(term in normalized_context for term in ("sudden", "suddenly"))
+            and any(term in normalized_context for term in ("shortness of breath", "short of breath", "dyspnea"))
+            and pe_risk_markers
+        )
+        acute_dystonic_context = (
+            any(term in normalized_context for term in ("antiemetic", "antipsychotic", "nausea medication", "new medication"))
+            and any(
+                term in normalized_context
+                for term in ("neck spasm", "neck twisting", "muscle spasm", "muscle spasms", "jaw stiffness", "oculogyric", "dystonic")
+            )
+        )
         unstable_angina_context = (
             has_chest_discomfort
             and any(
@@ -818,6 +1002,32 @@ class DiagnosisEngine:
             term in normalized_context
             for term in ("fever", "productive cough", "pleuritic", "infection", "chills", "sputum")
         )
+        pneumonia_context = (
+            "fever" in normalized_context
+            and "cough" in normalized_context
+            and (
+                has_short_breath
+                or "productive cough" in normalized_context
+                or "pleuritic" in normalized_context
+                or "chest pain" in normalized_context
+            )
+        )
+        pulmonary_embolism_context = (
+            any(term in normalized_context for term in ("sudden", "suddenly"))
+            and has_short_breath
+            and pe_risk_markers
+        ) or (
+            has_short_breath
+            and pe_risk_markers
+            and any(term in normalized_context for term in ("pleuritic", "worse when breathing", "worsens with breathing"))
+        )
+        acute_dystonic_context = (
+            any(term in normalized_context for term in ("antiemetic", "antipsychotic", "nausea medication", "new medication"))
+            and any(
+                term in normalized_context
+                for term in ("neck spasm", "neck twisting", "muscle spasm", "jaw stiffness", "oculogyric", "dystonic")
+            )
+        )
         wheeze_dominant_context = (
             any(term in normalized_context for term in ("wheez", "chest tightness"))
             and not respiratory_infection_context
@@ -836,6 +1046,27 @@ class DiagnosisEngine:
                 label="Stable angina",
                 confidence=max(0.58, top_confidence - 0.03),
                 source="cardiopulmonary_pattern_expansion",
+            )
+        if pulmonary_embolism_context:
+            cls._inject_or_promote_candidate(
+                candidate_map,
+                label="Pulmonary embolism",
+                confidence=max(0.70, top_confidence + 0.04),
+                source="cardiopulmonary_pattern_expansion",
+            )
+        if pneumonia_context:
+            cls._inject_or_promote_candidate(
+                candidate_map,
+                label="Pneumonia",
+                confidence=max(0.70, top_confidence + 0.03),
+                source="respiratory_pattern_expansion",
+            )
+        if acute_dystonic_context:
+            cls._inject_or_promote_candidate(
+                candidate_map,
+                label="Acute dystonic reactions",
+                confidence=max(0.72, top_confidence + 0.06),
+                source="clinical_context_expansion",
             )
         if spontaneous_pneumothorax_context:
             cls._inject_or_promote_candidate(
@@ -999,6 +1230,22 @@ class DiagnosisEngine:
                 "long flight",
             )
         )
+        pulmonary_embolism_context = (
+            any(term in normalized_context for term in ("sudden", "suddenly"))
+            and any(term in normalized_context for term in ("shortness of breath", "short of breath", "dyspnea"))
+            and pe_risk_markers
+        ) or (
+            any(term in normalized_context for term in ("shortness of breath", "short of breath", "dyspnea"))
+            and pe_risk_markers
+            and any(term in normalized_context for term in ("pleuritic", "worse when breathing", "worsens with breathing"))
+        )
+        acute_dystonic_context = (
+            any(term in normalized_context for term in ("antiemetic", "antipsychotic", "nausea medication", "new medication"))
+            and any(
+                term in normalized_context
+                for term in ("neck spasm", "neck twisting", "muscle spasm", "muscle spasms", "jaw stiffness", "oculogyric", "dystonic")
+            )
+        )
         af_context = "irregular" in normalized_context and (
             "palpit" in normalized_context or "heartbeat" in normalized_context
         )
@@ -1048,12 +1295,22 @@ class DiagnosisEngine:
         boost = 0.0
         if "pulmonary embolism" in normalized_label and pe_context:
             boost += 0.18
+        if "pulmonary embolism" in normalized_label and pulmonary_embolism_context:
+            boost += 0.18
         if any(term in normalized_label for term in ("myocarditis", "pericarditis")) and pe_context:
             boost -= 0.10
+        if "localized edema" in normalized_label and pulmonary_embolism_context:
+            boost -= 0.26
+        if "acute dystonic" in normalized_label and acute_dystonic_context:
+            boost += 0.34
+        if "chagas" in normalized_label and acute_dystonic_context:
+            boost -= 0.34
 
         if "pneumonia" in normalized_label:
             if has_infection:
                 boost += 0.12
+            if "shortness of breath" in normalized_context and "cough" in normalized_context and "fever" in normalized_context:
+                boost += 0.10
             if has_wheeze and no_fever and no_productive_cough:
                 boost -= 0.09
             if upper_respiratory_context and not has_infection:
@@ -2728,6 +2985,41 @@ class DiagnosisEngine:
                 ):
                     selected = best_rule_candidate
 
+            context_expansion_candidates = [
+                candidate for candidate in candidates
+                if any(
+                    source in {
+                        "clinical_context_expansion",
+                        "cardiopulmonary_pattern_expansion",
+                        "respiratory_pattern_expansion",
+                        "respiratory_context_rebalance",
+                    }
+                    for source in candidate.get("sources", [])
+                )
+                and not cls._labels_overlap(str(candidate.get("label", "")), str(selected.get("label", "")))
+            ]
+            if context_expansion_candidates:
+                best_context_candidate = max(
+                    context_expansion_candidates,
+                    key=lambda item: float(item.get("confidence", 0.0)),
+                )
+                selected_confidence = float(selected.get("confidence", 0.0))
+                best_context_confidence = float(best_context_candidate.get("confidence", 0.0))
+                selected_sources = set(selected.get("sources", []))
+                selected_is_single_ai = bool(selected_sources.intersection({"classifier", "rag", "rag_retrieval"}))
+                selected_is_single_ai = selected_is_single_ai and not selected_sources.intersection(
+                    {
+                        "symptom_rules",
+                        "lab_rules",
+                        "clinical_context_expansion",
+                        "cardiopulmonary_pattern_expansion",
+                        "respiratory_pattern_expansion",
+                        "respiratory_context_rebalance",
+                    }
+                )
+                if selected_is_single_ai and best_context_confidence >= selected_confidence + 0.08:
+                    selected = best_context_candidate
+
             supporting_evidence = list(dict.fromkeys(selected["evidence"]))
             if rule_conditions:
                 supporting_evidence.append(
@@ -2967,6 +3259,10 @@ class DiagnosisEngine:
         patient_symptoms = [str(item).strip().lower() for item in symptoms if str(item).strip()]
         rag_out: Optional[Dict[str, Any]] = None
         classifier_prediction: Optional[Dict[str, Any]] = None
+        unsupported_scope_signals = self._detect_unsupported_scope_signals(
+            combined,
+            patient_symptoms,
+        )
 
         if self._rag_assistant:
             rag_out = await self._rag_assistant.query(
@@ -2984,6 +3280,11 @@ class DiagnosisEngine:
                 "usable_for_fusion": (rag_out.get("rag_confidence") or {}).get("usable_for_fusion"),
                 "detected_out_of_scope_signals": rag_out.get("detected_out_of_scope_signals", []),
             }
+            unsupported_scope_signals.extend(
+                str(item)
+                for item in rag_out.get("detected_out_of_scope_signals", [])
+                if str(item).strip()
+            )
             if "structured_diagnosis" in rag_out:
                 result["structured_rag_diagnosis"] = rag_out["structured_diagnosis"]
 
@@ -3021,6 +3322,19 @@ class DiagnosisEngine:
             rag_out=rag_out,
             classifier_prediction=classifier_prediction,
         )
+        unsupported_scope_signals = list(dict.fromkeys(unsupported_scope_signals))
+        final_diagnosis = self._calibrate_final_diagnosis(
+            final_diagnosis,
+            candidates=candidates,
+            findings=findings_payload,
+            rag_out=rag_out,
+            classifier_prediction=classifier_prediction,
+            report_text=combined,
+            patient_symptoms=patient_symptoms,
+            unsupported_scope_signals=unsupported_scope_signals,
+        )
+        if final_diagnosis:
+            result["final_diagnosis"] = final_diagnosis
         if candidates:
             result["diagnostic_candidates"] = [
                 {
@@ -3062,6 +3376,17 @@ class DiagnosisEngine:
             findings_payload,
             response_language=response_language,
         )
+        if unsupported_scope_signals:
+            result["safety"]["unsupported_scope_signals"] = unsupported_scope_signals
+            result["safety"]["clinician_review_required"] = True
+            if any(
+                signal in {"stroke_like_neurologic_emergency", "pregnancy_related_emergency"}
+                for signal in unsupported_scope_signals
+            ):
+                result["safety"]["emergency_attention_recommended"] = True
+                result["safety"]["reasons"].append(
+                    "Unsupported emergency red-flag symptoms detected; urgent professional evaluation is recommended."
+                )
 
         if self._response_synthesizer:
             synthesis = await self._response_synthesizer.synthesize(

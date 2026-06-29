@@ -141,7 +141,28 @@ class MedicalCaseSearcher:
         "groin_pain": ("groin", "testicular", "testicle"),
         "ascending_weakness": ("ascending weakness", "both legs and arms", "tingling", "numbness"),
         "bulbar_weakness": ("drooping eyelids", "double vision", "difficulty speaking", "difficulty swallowing", "fatigable"),
-        "dystonia_medication": ("antipsychotic", "neck spasm", "jaw stiffness", "dystonic"),
+        "dystonia_medication": (
+            "antipsychotic",
+            "antiemetic",
+            "nausea medication",
+            "neck spasm",
+            "neck twisting",
+            "muscle spasm",
+            "jaw stiffness",
+            "oculogyric",
+            "dystonic",
+        ),
+        "stroke_red_flag": (
+            "facial droop",
+            "face drooping",
+            "arm weakness",
+            "slurred speech",
+            "trouble speaking",
+            "one-sided weakness",
+            "sudden weakness on one side",
+        ),
+        "pregnancy_emergency": ("pregnant", "pregnancy", "vaginal bleeding"),
+        "trauma": ("trauma", "injury", "twisting it", "after a fall", "football"),
         "joint_pain": ("joint pain", "wrist", "shoulder", "photosensitive"),
     }
     _DISCRIMINATIVE_FEATURES = {
@@ -620,6 +641,12 @@ class MedicalCaseSearcher:
             "urgency" in query_features and "suprapubic_pain" in query_features
         ):
             detected.append("uti_cystitis")
+        if "stroke_red_flag" in query_features:
+            detected.append("stroke_like_neurologic_emergency")
+        if "pregnancy_emergency" in query_features:
+            detected.append("pregnancy_related_emergency")
+        if "trauma" in query_features:
+            detected.append("trauma_or_orthopedic_injury")
         return detected
 
     @classmethod

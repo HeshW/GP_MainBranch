@@ -4,8 +4,9 @@ import { Card } from "@/components/ui/card";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { usePreferences } from "@/contexts/preferences-context";
 import { getCopy } from "@/lib/i18n";
+import Link from "next/link";
 
-const serviceMarks = ["AI", "OCR", "LAB", "MAP"];
+const serviceMarks = ["AI", "OCR", "LAB", "MAP", "MH"];
 
 export default function ServicesPage() {
   const { language } = usePreferences();
@@ -30,6 +31,18 @@ export default function ServicesPage() {
               <p className="mt-3 text-sm leading-7 text-[var(--brand-muted)]">{text}</p>
             </Card>
           ))}
+          <Link
+            href="/mental-support"
+            className="nabda-card-hover rounded-lg border border-[var(--brand-border)] bg-[var(--brand-surface)] p-6 shadow-[var(--brand-shadow)] transition"
+          >
+            <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-lg bg-[var(--brand-soft)] text-xs font-black tracking-wide text-[var(--brand-primary)]">
+              {serviceMarks[4]}
+            </div>
+            <h2 className="text-xl font-semibold text-[var(--brand-heading)]">Mental Support</h2>
+            <p className="mt-3 text-sm leading-7 text-[var(--brand-muted)]">
+              Talk to a supportive AI assistant for stress, sadness, and coping support without diagnosis.
+            </p>
+          </Link>
         </div>
       </div>
     </main>

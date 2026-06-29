@@ -11,6 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 _ENV_FILE = _BACKEND_DIR / ".env"
+_DEFAULT_SQLITE_URL = f"sqlite:///{(_BACKEND_DIR / 'chatbot.db').as_posix()}"
 
 
 class Settings(BaseSettings):
@@ -24,6 +25,10 @@ class Settings(BaseSettings):
 
     api_title: str = "GP Medical Analysis API"
     api_version: str = "1.0.0"
+    database_url: str = _DEFAULT_SQLITE_URL
+    jwt_secret_key: str = "change-this-local-dev-secret"
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 60 * 24 * 7
     max_upload_bytes: int = 10 * 1024 * 1024
     pipeline_timeout_seconds: float = 120.0
     require_service_api_key: bool = False
@@ -60,6 +65,13 @@ class Settings(BaseSettings):
     finetuned_model_dir: Optional[str] = None
     classifier_max_length: int = 256
     classifier_translate_arabic: bool = True
+
+    # Separate mental-health support LoRA model (optional, not part of diagnosis)
+    mental_health_model_dir: str = "backend/artifacts/artifacts/mental_health/complaint_model_final"
+    mental_health_enabled: bool = True
+    mental_health_load_in_4bit: bool = True
+    mental_health_max_new_tokens: int = 400
+    mental_health_device: str = "auto"
 
     @property
     def cors_origin_list(self) -> List[str]:

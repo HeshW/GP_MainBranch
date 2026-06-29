@@ -59,7 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--targeted-classifier-dir", type=Path, default=TARGETED_CLASSIFIER_DIR)
     parser.add_argument("--natural-faiss-dir", type=Path, default=NATURAL_FAISS_DIR)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument("--max-smoke-cases", type=int, default=245, help="0 means run all prediction rows.")
+    parser.add_argument("--max-smoke-cases", type=int, default=49, help="0 means run all prediction rows.")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--skip-model-smoke", action="store_true")
@@ -705,7 +705,7 @@ def retraining_assessment(metrics: dict[str, Any], smoke: dict[str, Any], label_
         optional = False
         rationale = "Current evidence shows either weak overall metrics or label inconsistency."
 
-    if high_conf_errors == 0 and ece <= 0.05 and accuracy >= 0.99:
+    if smoke.get("available") and high_conf_errors == 0 and ece <= 0.05 and accuracy >= 0.99:
         category = "A. No retraining needed."
         recommended = False
         necessary = False
