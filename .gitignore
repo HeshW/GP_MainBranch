@@ -9,6 +9,12 @@ venv/
 .env
 presentation/
 Mego Merge/
+tools/
+
+# Local presentation/demo artifacts
+docs/demo.*
+docs/WhatsApp Image *.jpeg
+docs/~$*.pptx
 # AI Models & Data (Too large for Git)
 *.pth
 *.bin
