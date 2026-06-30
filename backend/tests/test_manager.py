@@ -243,7 +243,15 @@ def test_run_clarification_merges_follow_up_answers_and_re_diagnoses(monkeypatch
     manager = ChatManager()
 
     class StubDiagnosisEngine:
-        def apply_follow_up_scoring(self, diagnosis, *, answers, prior_diagnosis=None):
+        def apply_follow_up_scoring(
+            self,
+            diagnosis,
+            *,
+            answers,
+            prior_diagnosis=None,
+            normalized_follow_up_text="",
+        ):
+            assert "palpitations" in normalized_follow_up_text.lower()
             diagnosis["final_diagnosis"]["diagnosis"] = "Atrial fibrillation"
             diagnosis["final_diagnosis"]["source"] = "clarification_rerank"
             return diagnosis

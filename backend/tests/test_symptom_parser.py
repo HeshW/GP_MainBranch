@@ -90,6 +90,31 @@ def test_parse_symptoms_negation_handles_longer_scope_window():
     assert "fever" in negated
 
 
+def test_follow_up_negated_chest_discomfort_does_not_add_cardiac_symptoms():
+    text = "no chest discomfort, just increased thirst and urination"
+
+    parsed = parse_symptoms(text)
+    validated = validate_parsed(parsed)
+
+    assert "thirst" in validated["symptoms"]
+    assert "polyuria" in validated["symptoms"]
+    assert "chest pain" not in validated["symptoms"]
+    assert "wheezing" not in validated["symptoms"]
+    assert "chest pain" in validated["negated_symptoms"]
+
+
+def test_common_words_do_not_fuzzy_match_symptoms():
+    text = "I have increased thirst and feel fatigue for over 2 weeks"
+
+    parsed = parse_symptoms(text)
+    validated = validate_parsed(parsed)
+
+    assert "fatigue" in validated["symptoms"]
+    assert "thirst" in validated["symptoms"]
+    assert "weakness" not in validated["symptoms"]
+    assert "dizziness" not in validated["symptoms"]
+
+
 def test_parse_symptoms_negation_handles_arabic_variants():
     text = "ما عندي كحة ولا حرارة لكن عندي دوخة"
     parsed = parse_symptoms(text)

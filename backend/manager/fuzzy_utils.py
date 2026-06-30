@@ -23,6 +23,30 @@ SYMPTOM_FUZZY_THRESHOLD: int = 75
 LAB_FUZZY_THRESHOLD: int = 80
 FUZZY_SYMPTOM_CONFIDENCE: float = 0.65
 MIN_TOKEN_LENGTH: int = 4
+FUZZY_TOKEN_STOPWORDS: Set[str] = {
+    "abdomen",
+    "abdominal",
+    "also",
+    "back",
+    "chest",
+    "feel",
+    "feels",
+    "face",
+    "facial",
+    "head",
+    "heart",
+    "have",
+    "having",
+    "increased",
+    "leg",
+    "neck",
+    "over",
+    "stomach",
+    "throat",
+    "usual",
+    "weeks",
+    "with",
+}
 
 
 def is_available() -> bool:
@@ -99,7 +123,10 @@ def extract_candidate_tokens(text: str) -> List[str]:
     words = [
         w
         for w in raw_words
-        if len(w) >= MIN_TOKEN_LENGTH and not w.isdigit() and not _is_arabic_text(w)
+        if len(w) >= MIN_TOKEN_LENGTH
+        and w not in FUZZY_TOKEN_STOPWORDS
+        and not w.isdigit()
+        and not _is_arabic_text(w)
     ]
 
     seen: Set[str] = set()

@@ -26,13 +26,23 @@ function normalizeCart(items: CartItem[]) {
 }
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [items, setItems] = useState<CartItem[]>(() =>
-    readStorage<CartItem[]>("next-ecomm-cart", []),
-  );
+  const [items, setItems] = useState<CartItem[]>([]);
+  const [hasLoadedCart, setHasLoadedCart] = useState(false);
 
   useEffect(() => {
+    queueMicrotask(() => {
+      setItems(readStorage<CartItem[]>("next-ecomm-cart", []));
+      setHasLoadedCart(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedCart) {
+      return;
+    }
+
     writeStorage("next-ecomm-cart", items);
-  }, [items]);
+  }, [hasLoadedCart, items]);
 
   function addToCart(product: Product, quantity = 1) {
     setItems((current) => {

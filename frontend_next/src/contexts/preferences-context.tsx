@@ -25,12 +25,9 @@ type PreferencesContextValue = {
 const PreferencesContext = createContext<PreferencesContextValue | undefined>(undefined);
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguageState] = useState<Language>(() =>
-    readStorage<Language>("nabda-language", "en"),
-  );
-  const [theme, setTheme] = useState<ThemeName>(() =>
-    readStorage<ThemeName>("nabda-theme", "care"),
-  );
+  const [language, setLanguageState] = useState<Language>("en");
+  const [theme, setTheme] = useState<ThemeName>("care");
+  const [hasLoadedPreferences, setHasLoadedPreferences] = useState(false);
 
   const dir: "ltr" | "rtl" = language === "ar" ? "rtl" : "ltr";
 
@@ -38,9 +35,24 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     document.documentElement.lang = language;
     document.documentElement.dir = dir;
     document.documentElement.dataset.theme = theme;
+  }, [dir, language, theme]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setLanguageState(readStorage<Language>("nabda-language", "en"));
+      setTheme(readStorage<ThemeName>("nabda-theme", "care"));
+      setHasLoadedPreferences(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedPreferences) {
+      return;
+    }
+
     writeStorage("nabda-language", language);
     writeStorage("nabda-theme", theme);
-  }, [dir, language, theme]);
+  }, [hasLoadedPreferences, language, theme]);
 
   function setLanguage(nextLanguage: Language) {
     setLanguageState(nextLanguage);

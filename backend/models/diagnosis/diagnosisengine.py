@@ -170,6 +170,11 @@ class DiagnosisEngine:
             "swollen knee",
         ),
     }
+    HARD_UNSUPPORTED_SCOPE_SIGNALS = {
+        "stroke_like_neurologic_emergency",
+        "pregnancy_related_emergency",
+        "trauma_or_orthopedic_injury",
+    }
     FOLLOW_UP_QUESTION_BANK = (
         {
             "keywords": ("gerd", "reflux", "gastroesophageal"),
@@ -668,6 +673,17 @@ class DiagnosisEngine:
         }
 
     @classmethod
+    def _hard_unsupported_scope_signals(
+        cls,
+        unsupported_scope_signals: list[str],
+    ) -> list[str]:
+        return [
+            signal
+            for signal in dict.fromkeys(unsupported_scope_signals)
+            if signal in cls.HARD_UNSUPPORTED_SCOPE_SIGNALS
+        ]
+
+    @classmethod
     def _calibrate_final_diagnosis(
         cls,
         final_diagnosis: Optional[Dict[str, Any]],
@@ -680,8 +696,9 @@ class DiagnosisEngine:
         patient_symptoms: list[str],
         unsupported_scope_signals: list[str],
     ) -> Optional[Dict[str, Any]]:
-        if unsupported_scope_signals:
-            return cls._build_unsupported_scope_fallback(unsupported_scope_signals)
+        hard_unsupported_signals = cls._hard_unsupported_scope_signals(unsupported_scope_signals)
+        if hard_unsupported_signals:
+            return cls._build_unsupported_scope_fallback(hard_unsupported_signals)
         if not final_diagnosis:
             return final_diagnosis
 

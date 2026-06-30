@@ -413,6 +413,54 @@ def test_enabled_rag_includes_scope_debug_metadata():
     assert out["rag_metadata"]["usable_for_fusion"] is False
     assert out["rag_metadata"]["detected_out_of_scope_signals"] == ["diabetes_hyperglycemia"]
     assert out["decision_fusion"]["rag_usable_for_fusion"] is False
+    assert out["final_diagnosis"]["diagnosis"] == "Possible hyperglycemia / diabetes symptom pattern"
+    assert out["final_diagnosis"]["source"] != "safety_scope_gate"
+
+
+def test_diabetes_scope_signal_does_not_override_symptom_rule_after_clarification():
+    class StubRAG:
+        async def query(self, patient_text, top_k=5, query_symptoms=None):
+            return {
+                "response": "retrieval only",
+                "retrieved_cases": [
+                    {
+                        "pathology": "Myocarditis",
+                        "rerank_score": 0.1,
+                        "symptom_overlap": 0.1,
+                    }
+                ],
+                "rag_query_text": patient_text,
+                "rag_mode": "retrieval_only",
+                "rag_scope_status": "out_of_scope_or_low_confidence",
+                "detected_out_of_scope_signals": ["diabetes_hyperglycemia"],
+                "rag_confidence": {
+                    "level": "low",
+                    "usable_for_fusion": False,
+                    "scope_status": "out_of_scope_or_low_confidence",
+                    "detected_out_of_scope_signals": ["diabetes_hyperglycemia"],
+                },
+            }
+
+    engine = DiagnosisEngine()
+    engine._rag_assistant = StubRAG()
+    out = run_async(
+        engine.diagnose(
+            {
+                "raw_text": (
+                    "Patient-reported complaint: I have increased thirst and feel fatigue for over 2 weeks.\n"
+                    "Patient reports: fatigue, increased thirst\n"
+                    "Follow-up clarification: no chest discomfort, just increased thirst and urination"
+                ),
+                "symptoms": ["fatigue", "thirst", "polyuria"],
+                "labs": {},
+                "follow_up_answers": ["no chest discomfort, just increased thirst and urination"],
+            }
+        )
+    )
+
+    assert out["final_diagnosis"]["diagnosis"] == "Possible hyperglycemia / diabetes symptom pattern"
+    assert out["final_diagnosis"]["source"] == "rules_fallback"
+    assert out["safety"]["unsupported_scope_signals"] == ["diabetes_hyperglycemia"]
 
 
 def test_uncertain_ai_case_returns_disease_targeted_follow_up_questions(monkeypatch):

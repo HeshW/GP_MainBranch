@@ -31,7 +31,7 @@ SYMPTOM_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
         ),
     ),
     ("wheezing", ("wheezing", "wheeze", "صفير", "أزيز")),
-    ("chest pain", ("chest pain", "retrosternal pain", "pleuritic chest pain", "ألم صدر", "وجع صدر")),
+    ("chest pain", ("chest pain", "chest discomfort", "retrosternal pain", "pleuritic chest pain", "ألم صدر", "وجع صدر")),
     ("chest tightness", ("chest tightness", "tight chest")),
     ("palpitations", ("palpitations", "rapid heartbeat", "irregular heartbeat", "tachycardia", "خفقان", "رفرفة", "ضربات قلب سريعة")),
     ("irregular heartbeat", ("irregular heartbeat", "irregular pulse")),

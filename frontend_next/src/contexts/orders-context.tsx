@@ -28,13 +28,23 @@ type OrdersContextValue = {
 const OrdersContext = createContext<OrdersContextValue | undefined>(undefined);
 
 export function OrdersProvider({ children }: { children: React.ReactNode }) {
-  const [orders, setOrders] = useState<Order[]>(() =>
-    readStorage<Order[]>("next-ecomm-orders", []),
-  );
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [hasLoadedOrders, setHasLoadedOrders] = useState(false);
 
   useEffect(() => {
+    queueMicrotask(() => {
+      setOrders(readStorage<Order[]>("next-ecomm-orders", []));
+      setHasLoadedOrders(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedOrders) {
+      return;
+    }
+
     writeStorage("next-ecomm-orders", orders);
-  }, [orders]);
+  }, [hasLoadedOrders, orders]);
 
   function createOrder(order: Omit<Order, "id" | "createdAt" | "status">) {
     const nextOrder: Order = {
