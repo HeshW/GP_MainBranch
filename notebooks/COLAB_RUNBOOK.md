@@ -1,13 +1,13 @@
 # Colab Runbook
 
-Use [Colab_Natural_AI_Pipeline.ipynb](C:\Users\10\Downloads\New folder (5)\GP_MainBranch-master\notebooks\Colab_Natural_AI_Pipeline.ipynb) in Colab.
+Use [`Colab_Natural_AI_Pipeline.ipynb`](Colab_Natural_AI_Pipeline.ipynb) in Colab.
 
 ## Goal
 
 Produce two clean artifacts:
 
 - `backend/artifacts/clinicalbert_classifier_natural`
-- `backend/faiss_data_natural`
+- `backend/artifacts/faiss_data_natural`
 
 These replace the older artifacts that were built on noisy / leaky text representations.
 
@@ -37,6 +37,6 @@ The notebook exports to Drive:
 Copy the exported folders into the local project and then update the backend config to point at:
 
 - `backend/artifacts/clinicalbert_classifier_natural`
-- `backend/faiss_data_natural`
+- `backend/artifacts/faiss_data_natural`
 
 Then rerun end-to-end evaluation.

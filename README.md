@@ -1,95 +1,94 @@
 # GP_MainBranch
 
-Modular medical-report analysis system.
+Modular medical-report analysis system with a FastAPI backend, a Next.js frontend, optional RAG/classifier artifacts, and reproducible evaluation scripts.
 
-## Architecture
+## Project Structure
 
 ```text
-backend/app/                  FastAPI entrypoints, routers, and config
-backend/manager/              Orchestration layer split by responsibility
-backend/manager/chat_manager.py    Public facade used by API and scripts
-backend/manager/chat_support.py    Chat prompt/messages helpers
-backend/manager/pipeline_support.py Pipeline report assembly helpers
-backend/manager/session_store.py   In-memory chat session storage
-backend/models/               OCR, diagnosis, and therapy engines
-backend/tests/                Backend test suite
+backend/
+  app/                 FastAPI app, routers, config, auth, and database setup
+  manager/             Pipeline orchestration and chat/session support
+  models/              OCR, diagnosis, RAG, mental-health, and therapy modules
+  scripts/             Evaluation, health-check, ingestion, and reproducibility tools
+  tests/               Backend unit and API contract tests
+  docs/                Backend evaluation and artifact documentation
 
-frontend/src/features/        Feature-first UI modules
-frontend/src/features/analysis/ Analysis tabs + request hook
-frontend/src/features/results/  Result rendering
-frontend/src/features/chat/     Chat UI
-frontend/src/shared/            Shared API client, layout, hooks, and types
+frontend_next/         Active Next.js application
+notebooks/             Reproducibility notebooks for final model/artifact work
+data/
+  raw/                 Local raw datasets, ignored except .gitkeep
+  processed/           Local processed datasets, ignored except .gitkeep
+  evaluation/          Generated evaluation outputs, ignored except .gitkeep
+archive/               Legacy code and research notes retained for review
+docs/                  Repository-level reports
+requirements.txt       Unified Python install entrypoint
 ```
 
-## Web application
+Large datasets, model weights, FAISS indexes, local databases, virtual environments, Node installs, and generated build outputs are intentionally ignored.
 
-1. Install API deps: `pip install -r backend/requirements.txt`.
-2. Start API from repo root: `uvicorn app.main:app --reload --app-dir backend --port 8000`.
-3. Start UI: `cd frontend && npm install && npm run dev`.
-4. Open `http://127.0.0.1:5173`.
+## Quick Start
 
-### Interface modes
-
-The frontend now has two separate modes:
-
-1. User Interface (default)
-	- Dark-blue, simplified, chat-first workflow for non-technical usage.
-	- Choose one input path (Symptoms text, Lab JSON, or Report image), run analysis, then review a simplified summary.
-	- Continue with the embedded medical chat for follow-up explanations.
-
-2. Dev Workbench
-	- Toggle from header: click `Dev workbench`.
-	- Keeps the original tabbed diagnostic interface (`Manual labs`, `Report image`, `Symptoms text`).
-	- Includes full result diagnostics (fusion details, clarification controls, retrieved cases, raw JSON).
-
-To return to the simplified experience, click `User interface` in the header toggle.
-
-Notes:
-- Frontend dev server is pinned to host `127.0.0.1` and port `5173` in `frontend/vite.config.ts`.
-- If port `5173` is occupied, Vite will fail fast (strict port) instead of silently switching ports.
-- Optional service-level API protection (no user accounts required):
-	- Backend `.env`: set `REQUIRE_SERVICE_API_KEY=true` and `SERVICE_API_KEY=<shared-secret>`.
-	- Frontend `.env` (inside `frontend/`): set `VITE_API_KEY=<shared-secret>`.
-	- Health/meta endpoints remain accessible without key for diagnostics.
-- Optional advanced AI modules are safe-off by default in `backend/.env.example` (`USE_RAG=false`, `USE_FINETUNED_CLASSIFIER=false`).
-	- If enabled but required assets are missing, backend startup degrades gracefully and keeps core endpoints available.
-- Therapy generation is feature-flagged and defaults to OFF in this milestone (`ENABLE_THERAPY=false`).
-	- Diagnosis, OCR, and chat remain enabled while therapy output returns a disabled placeholder payload.
-- RAG metadata loading is hardened by default:
-	- Prefer `metadata_mapping.json` for FAISS metadata.
-	- If using `metadata_mapping.pkl`, provide `metadata_mapping.pkl.sha256` for hash verification.
-	- Use `ALLOW_UNSAFE_PICKLE_METADATA=true` only for trusted local artifacts.
-
-Swagger docs: `http://127.0.0.1:8000/api/docs`.
-
-## Quick start
-
-### Run manager tester
-
-- `python -m manager.manager_tester --labs '{"glucose": 145.0, "hemoglobin": 11.0}'`
-- `python -m manager.manager_tester --symptoms "fatigue and thirst" --labs '{"glucose": 185.0}'`
-- `python -m manager.manager_tester --image path/to/report.png`
-
-### Installation
+Install Python dependencies from the repository root:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Run tests
+Create `backend/.env` from `backend/.env.example`, then start the API:
+
+```bash
+uvicorn app.main:app --reload --app-dir backend --port 8000
+```
+
+Start the active frontend:
+
+```bash
+cd frontend_next
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`. FastAPI docs are available at `http://127.0.0.1:8000/api/docs`.
+
+## Runtime Notes
+
+- Optional AI modules are safe-off by default in `backend/.env.example`.
+- If RAG/classifier flags are enabled but required artifacts are missing, startup degrades gracefully.
+- Therapy generation is feature-flagged with `ENABLE_THERAPY=false` by default.
+- RAG metadata loading prefers JSON metadata. Use unsafe pickle loading only for trusted local artifacts.
+- Service API-key protection can be enabled with `REQUIRE_SERVICE_API_KEY=true` and `SERVICE_API_KEY=...`.
+
+## Development And Evaluation
+
+Run backend tests:
 
 ```bash
 pytest backend/tests/
 ```
 
-Frontend smoke test:
-
-```bash
-cd frontend && npm run test:smoke
-```
-
-Backend API integration subset:
+Run the API integration subset:
 
 ```bash
 pytest -q backend/tests/test_api_integration.py
 ```
+
+Run the frontend build:
+
+```bash
+cd frontend_next
+npm run build
+```
+
+Build the discussion/evaluation pack:
+
+```bash
+python backend/scripts/build_discussion_evaluation.py
+```
+
+Evaluation outputs are generated under `data/evaluation/` and are not committed by default.
+
+## Archive Policy
+
+`archive/` contains files kept for manual review or historical context, not active runtime code. The archived Vite frontend is retained under `archive/frontend-vite/`; the active frontend is `frontend_next/`.
+
+See `docs/REPOSITORY_CLEANUP_REPORT.md` for the latest cleanup classification and validation notes.

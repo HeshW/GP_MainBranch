@@ -20,11 +20,22 @@ Mego Merge/
 backend/artifacts/**
 !backend/artifacts/
 !backend/artifacts/**/.gitkeep
+
+# Dataset, generated evaluation, and local data outputs.
+# Keep lightweight directory placeholders only.
+data/raw/**
+data/processed/**
+data/evaluation/**
+!data/raw/
+!data/raw/.gitkeep
+!data/processed/
+!data/processed/.gitkeep
+!data/evaluation/
+!data/evaluation/.gitkeep
+backend/data/
 data/samples/*
-# Dataset directories (do not commit large datasets or PHI)
 data/kaggleocrset/
 data/ocrdata/
-data/
 # OS files
 .DS_Store
 Thumbs.db
@@ -38,9 +49,7 @@ pytest_after_runtime.log
 
 # Editor / IDE
 .idea/
-.github/
-.github/*
-/docs
+
 # Local runtime artifacts
 .old_venvs/
 *.db
@@ -51,9 +60,13 @@ pytest_after_runtime.log
 .pytest_cache/
 
 # Web frontend
-frontend/node_modules/
-frontend/dist/
+node_modules/
+.next/
+dist/
+build/
+coverage/
 *.tsbuildinfo
+next-env.d.ts
 
 # Local API env (keep .env.example)
 backend/.env
