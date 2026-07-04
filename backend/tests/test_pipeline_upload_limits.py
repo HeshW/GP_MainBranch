@@ -23,6 +23,7 @@ class _DummyManager:
 class _Settings:
     def __init__(self, max_upload_bytes: int) -> None:
         self.max_upload_bytes = max_upload_bytes
+        self.pipeline_timeout_seconds = 120.0
 
 
 def _build_client(monkeypatch, max_upload_bytes: int):

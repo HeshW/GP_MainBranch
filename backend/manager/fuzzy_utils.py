@@ -28,7 +28,6 @@ FUZZY_TOKEN_STOPWORDS: Set[str] = {
     "abdominal",
     "also",
     "back",
-    "chest",
     "feel",
     "feels",
     "face",
@@ -91,6 +90,10 @@ def fuzzy_match_symptom(
         return None
 
     matched_alias, score, _ = result
+    if " " not in token.strip() and " " in str(matched_alias):
+        token_ratio = len(token.strip()) / max(len(str(matched_alias).strip()), 1)
+        if token_ratio < 0.65:
+            return None
     return alias_index[matched_alias], matched_alias, float(score)
 
 

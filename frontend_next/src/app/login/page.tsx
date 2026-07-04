@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Formik } from "formik";
 import * as Yup from "yup";
 import { Card } from "@/components/ui/card";
@@ -19,13 +19,12 @@ const loginSchema = Yup.object({
 
 export default function LoginPage() {
   const router = useRouter();
-  const [nextPath, setNextPath] = useState("/chatbot");
-  const { login } = useAuth();
-
-  useEffect(() => {
+  const [nextPath] = useState(() => {
+    if (typeof window === "undefined") return "/chatbot";
     const next = new URLSearchParams(window.location.search).get("next");
-    if (next?.startsWith("/")) setNextPath(next);
-  }, []);
+    return next?.startsWith("/") ? next : "/chatbot";
+  });
+  const { login } = useAuth();
 
   return (
     <RouteGuard guestOnly fallbackLabel="You're already signed in.">

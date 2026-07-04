@@ -63,10 +63,13 @@ function symptomHeuristic(text: string): boolean {
 }
 
 function summarizeAnalysis(result: AnalysisResponse): string {
-  const diagnosis = result.diagnosis?.final_diagnosis?.diagnosis ?? "No final diagnosis";
+  const topDifferential = result.diagnosis?.differential_diagnosis?.[0]?.label;
+  const diagnosis = result.diagnosis?.final_diagnosis?.diagnosis ?? topDifferential ?? "No final diagnosis";
   const confidence = result.diagnosis?.final_diagnosis?.confidence;
   const confidenceText = confidence === undefined ? "n/a" : String(confidence);
-  return `Analysis completed. Likely condition: ${diagnosis}. Confidence: ${confidenceText}.`;
+  return result.diagnosis?.final_diagnosis
+    ? `Analysis completed. Likely condition: ${diagnosis}. Confidence: ${confidenceText}.`
+    : `Analysis completed. No final diagnosis yet. Leading differential: ${diagnosis}.`;
 }
 
 function normalizeForCompare(value: string | undefined): string {
@@ -83,6 +86,7 @@ function getResponseText(analysis: AnalysisResponse): string | undefined {
 
 function AnalysisCard({ analysis }: { analysis: AnalysisResponse }) {
   const diagnosis = analysis.diagnosis?.final_diagnosis;
+  const differential = analysis.diagnosis?.differential_diagnosis ?? [];
   const responseText = getResponseText(analysis);
   const therapy = analysis.therapy?.therapy_plan;
   const safetyReasons = analysis.diagnosis?.safety?.reasons ?? [];
@@ -99,7 +103,7 @@ function AnalysisCard({ analysis }: { analysis: AnalysisResponse }) {
         <div>
           <p className="text-xs font-semibold uppercase text-[var(--brand-primary)]">Nabda analysis</p>
           <h3 className="mt-1 text-lg font-semibold text-[var(--brand-heading)]">
-            {diagnosis?.diagnosis ?? "No final diagnosis"}
+            {diagnosis?.diagnosis ?? "Differential diagnosis pending"}
           </h3>
         </div>
         {diagnosis?.confidence !== undefined ? (
@@ -110,6 +114,28 @@ function AnalysisCard({ analysis }: { analysis: AnalysisResponse }) {
       </div>
 
       {responseText ? <p className="mt-4 whitespace-pre-wrap text-sm leading-6">{responseText}</p> : null}
+      {differential.length ? (
+        <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white/70 p-3">
+          <p className="text-xs font-semibold uppercase text-[var(--brand-primary)]">Differential diagnosis</p>
+          <div className="mt-2 space-y-2">
+            {differential.slice(0, 4).map((item) => (
+              <div key={item.label} className="rounded-2xl bg-[var(--brand-soft)] px-3 py-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-[var(--brand-heading)]">{item.label}</p>
+                  <span className="text-xs font-semibold uppercase text-[var(--brand-primary)]">
+                    {item.urgency ?? "routine"} | {item.confidence ?? "n/a"}
+                  </span>
+                </div>
+                {item.missing_evidence?.length ? (
+                  <p className="mt-1 text-xs leading-5 text-[var(--brand-muted)]">
+                    Missing: {item.missing_evidence.slice(0, 3).join(", ")}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {therapy ? (
         <p className="mt-3 rounded-2xl bg-[var(--brand-soft)] px-3 py-2 text-sm leading-6 text-[var(--brand-text)]">
           Therapy: {therapy}
@@ -168,20 +194,23 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
   useEffect(() => {
     if (!token) return;
     let active = true;
-    setHistoryLoading(true);
-    fetchChats(token)
-      .then((items) => {
+
+    async function loadChats() {
+      setHistoryLoading(true);
+      try {
+        const items = await fetchChats(token as string);
         if (!active) return;
         setChats(items);
         setActiveChatId((current) => current ?? items[0]?.id ?? null);
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!active) return;
         setHistoryError(error instanceof Error ? error.message : "Unable to load chats.");
-      })
-      .finally(() => {
+      } finally {
         if (active) setHistoryLoading(false);
-      });
+      }
+    }
+
+    void loadChats();
 
     return () => {
       active = false;
@@ -190,14 +219,16 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
 
   useEffect(() => {
     if (!token || !activeChatId) {
-      setMessages([]);
+      queueMicrotask(() => setMessages([]));
       return;
     }
 
     let active = true;
-    setHistoryLoading(true);
-    fetchChatMessages(token, activeChatId)
-      .then((items) => {
+
+    async function loadMessages() {
+      setHistoryLoading(true);
+      try {
+        const items = await fetchChatMessages(token as string, activeChatId as number);
         if (!active) return;
         setMessages(
           items.map((item) => ({
@@ -207,14 +238,15 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
             content: item.content,
           })),
         );
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!active) return;
         setHistoryError(error instanceof Error ? error.message : "Unable to load chat messages.");
-      })
-      .finally(() => {
+      } finally {
         if (active) setHistoryLoading(false);
-      });
+      }
+    }
+
+    void loadMessages();
 
     return () => {
       active = false;

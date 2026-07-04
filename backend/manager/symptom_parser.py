@@ -56,7 +56,7 @@ SYMPTOM_PATTERNS: list[tuple[str, tuple[str, ...]]] = [
     ("double vision", ("double vision", "diplopia")),
     ("reflux", ("reflux", "acid reflux", "heartburn", "sour taste", "ارتجاع", "حموضة", "حرقان")),
     ("thirst", ("thirst", "excessive thirst", "عطش")),
-    ("polyuria", ("polyuria", "frequent urination", "كثرة التبول", "تبول متكرر")),
+    ("polyuria", ("polyuria", "frequent urination", "urination", "كثرة التبول", "تبول متكرر")),
     ("blurred vision", ("blurred vision", "blurry vision", "زغللة", "تشوش الرؤية")),
     ("leg swelling", ("leg swelling", "swollen leg", "leg edema", "تورم الساق", "ورم الساق")),
 ]

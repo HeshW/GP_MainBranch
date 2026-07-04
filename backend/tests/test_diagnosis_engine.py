@@ -32,9 +32,10 @@ def test_symptoms_only_returns_symptom_rule_finding():
     out = run_async(diagnose({"symptoms": ["fatigue", "thirst"], "raw_text": "fatigue thirst"}))
 
     assert out["findings"]
-    assert out["decision_fusion"]["primary_source"] == "rules_fallback"
+    assert "final_diagnosis" not in out
+    assert out["differential_diagnosis"]
     assert any(finding["source"] == "symptom_rules" for finding in out["findings"])
-    assert "AI-assisted assessment suggests" in out["summary"]
+    assert "uncertain" in out["summary"].lower()
 
 
 def test_reflux_context_triggers_symptom_rule():
@@ -361,7 +362,7 @@ def test_out_of_scope_rag_status_is_not_used_for_fusion():
         final_diagnosis=None,
     )
 
-    assert candidates == []
+    assert not any(candidate["label"] == "Pulmonary neoplasm" for candidate in candidates)
     assert fusion["rag_scope_status"] == "out_of_scope_or_low_confidence"
     assert fusion["rag_usable_for_fusion"] is False
 
@@ -413,8 +414,11 @@ def test_enabled_rag_includes_scope_debug_metadata():
     assert out["rag_metadata"]["usable_for_fusion"] is False
     assert out["rag_metadata"]["detected_out_of_scope_signals"] == ["diabetes_hyperglycemia"]
     assert out["decision_fusion"]["rag_usable_for_fusion"] is False
-    assert out["final_diagnosis"]["diagnosis"] == "Possible hyperglycemia / diabetes symptom pattern"
-    assert out["final_diagnosis"]["source"] != "safety_scope_gate"
+    assert "final_diagnosis" not in out
+    assert any(
+        "hyperglycemia" in item["label"].lower()
+        for item in out["differential_diagnosis"]
+    )
 
 
 def test_diabetes_scope_signal_does_not_override_symptom_rule_after_clarification():
@@ -458,8 +462,11 @@ def test_diabetes_scope_signal_does_not_override_symptom_rule_after_clarificatio
         )
     )
 
-    assert out["final_diagnosis"]["diagnosis"] == "Possible hyperglycemia / diabetes symptom pattern"
-    assert out["final_diagnosis"]["source"] == "rules_fallback"
+    assert "final_diagnosis" not in out
+    assert any(
+        "hyperglycemia" in item["label"].lower()
+        for item in out["differential_diagnosis"]
+    )
     assert out["safety"]["unsupported_scope_signals"] == ["diabetes_hyperglycemia"]
 
 

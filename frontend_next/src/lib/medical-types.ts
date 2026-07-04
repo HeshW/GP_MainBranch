@@ -78,6 +78,16 @@ export interface AnalysisResponse {
       confidence?: number;
       sources?: string[];
     }>;
+    differential_diagnosis?: Array<{
+      label: string;
+      confidence?: number;
+      urgency?: string;
+      evidence_for?: string[];
+      evidence_against?: string[];
+      missing_evidence?: string[];
+      recommended_follow_up_questions?: string[];
+      sources?: string[];
+    }>;
     clarification?: {
       needed?: boolean;
       mode?: string;

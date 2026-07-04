@@ -175,6 +175,173 @@ class DiagnosisEngine:
         "pregnancy_related_emergency",
         "trauma_or_orthopedic_injury",
     }
+    FINAL_DIAGNOSIS_MIN_CONFIDENCE = 0.72
+    SERIOUS_FINAL_DIAGNOSIS_MIN_CONFIDENCE = 0.82
+    COMMONNESS_PRIOR = {
+        "common": 0.08,
+        "uncommon": 0.0,
+        "rare": -0.07,
+        "very_rare": -0.12,
+    }
+    CONDITION_PROFILES: Dict[str, Dict[str, Any]] = {
+        "myocarditis": {
+            "aliases": ("myocarditis",),
+            "commonness": "very_rare",
+            "urgency": "urgent",
+            "required_features": ("chest pain", "shortness of breath", "dyspnea", "palpitations"),
+            "supporting_features": ("viral prodrome", "recent viral illness", "myalgia", "worse lying down", "fatigue"),
+            "negative_features": ("no chest pain", "no shortness of breath", "no palpitations"),
+            "follow_up": (
+                "Was there a recent viral illness before the chest symptoms?",
+                "Is there chest pain, shortness of breath, palpitations, or fainting?",
+            ),
+        },
+        "pulmonary embolism": {
+            "aliases": ("pulmonary embolism",),
+            "commonness": "rare",
+            "urgency": "emergency",
+            "required_features": ("shortness of breath", "dyspnea", "chest pain"),
+            "supporting_features": ("sudden", "pleuritic", "leg swelling", "calf swelling", "immobility", "long flight", "recent surgery"),
+            "negative_features": ("no shortness of breath", "no chest pain", "no leg swelling"),
+            "follow_up": (
+                "Did the breathing problem start suddenly?",
+                "Is there pleuritic chest pain, leg swelling, recent immobility, or recent surgery?",
+            ),
+        },
+        "unstable angina": {
+            "aliases": ("unstable angina", "possible nstemi", "possible stemi", "myocardial infarction", "heart attack"),
+            "commonness": "uncommon",
+            "urgency": "emergency",
+            "required_features": ("chest pain", "chest pressure", "chest discomfort"),
+            "supporting_features": ("at rest", "worsening", "sweating", "diaphoresis", "nausea", "radiating pain"),
+            "negative_features": ("no chest pain", "improves with rest"),
+            "follow_up": (
+                "Is the chest pain happening at rest or getting worse recently?",
+                "Is there sweating, nausea, fainting, or pain spreading to the arm/jaw?",
+            ),
+        },
+        "stable angina": {
+            "aliases": ("stable angina",),
+            "commonness": "uncommon",
+            "urgency": "prompt",
+            "required_features": ("chest pain", "chest pressure", "chest discomfort"),
+            "supporting_features": ("exertion", "exercise", "improves with rest", "relief with rest"),
+            "negative_features": ("at rest", "worsening"),
+            "follow_up": (
+                "Does the chest discomfort appear with exertion and improve with rest?",
+            ),
+        },
+        "stroke-like emergency": {
+            "aliases": ("stroke", "stroke like", "stroke-like", "facial droop", "slurred speech"),
+            "commonness": "uncommon",
+            "urgency": "emergency",
+            "required_features": ("facial droop", "slurred speech", "one-sided weakness", "arm weakness", "difficulty speaking"),
+            "supporting_features": ("sudden", "trouble speaking", "weakness on one side"),
+            "negative_features": (),
+            "follow_up": (
+                "Did weakness, facial droop, or speech trouble start suddenly?",
+            ),
+        },
+        "pneumonia": {
+            "aliases": ("pneumonia",),
+            "commonness": "uncommon",
+            "urgency": "prompt",
+            "required_features": ("cough", "fever"),
+            "supporting_features": ("productive cough", "shortness of breath", "pleuritic", "chills", "sputum"),
+            "negative_features": ("no fever", "no cough", "no productive cough"),
+            "follow_up": (
+                "Is there fever with productive cough, chills, or pleuritic chest pain?",
+            ),
+        },
+        "serious infection": {
+            "aliases": ("sepsis", "meningitis", "serious infection"),
+            "commonness": "rare",
+            "urgency": "emergency",
+            "required_features": ("fever", "confusion", "severe headache", "neck stiffness"),
+            "supporting_features": ("rash", "very weak", "low blood pressure", "worsening", "stiff neck"),
+            "negative_features": ("no fever", "no headache", "no neck stiffness"),
+            "follow_up": (
+                "Is there confusion, stiff neck, severe headache, rash, or rapidly worsening fever?",
+            ),
+        },
+        "pulmonary neoplasm": {
+            "aliases": ("pulmonary neoplasm", "lung cancer", "cancer"),
+            "commonness": "rare",
+            "urgency": "prompt",
+            "required_features": ("chronic cough", "weight loss", "cough"),
+            "supporting_features": ("progressive", "persistent", "blood in sputum", "worsening breathing"),
+            "negative_features": ("short infection", "acute infection"),
+            "follow_up": (
+                "Has cough or weight loss been persistent or progressive over weeks to months?",
+            ),
+        },
+        "pancreatic neoplasm": {
+            "aliases": ("pancreatic neoplasm", "pancreatic cancer"),
+            "commonness": "rare",
+            "urgency": "prompt",
+            "required_features": ("abdominal pain", "epigastric", "weight loss"),
+            "supporting_features": ("poor appetite", "loss of appetite", "progressive", "jaundice"),
+            "negative_features": ("brief stomach upset",),
+            "follow_up": (
+                "Is there progressive upper abdominal pain, weight loss, appetite loss, or jaundice?",
+            ),
+        },
+        "dehydration": {
+            "aliases": ("dehydration",),
+            "commonness": "common",
+            "urgency": "routine",
+            "required_features": (),
+            "supporting_features": ("thirst", "dry mouth", "reduced intake", "dark urine", "dizziness", "fatigue"),
+            "negative_features": ("normal intake", "no thirst"),
+            "follow_up": (
+                "Has fluid intake been low, or is urine darker than usual?",
+            ),
+        },
+        "urti": {
+            "aliases": ("urti", "upper respiratory tract infection", "viral pharyngitis"),
+            "commonness": "common",
+            "urgency": "routine",
+            "required_features": (),
+            "supporting_features": ("sore throat", "nasal congestion", "runny nose", "cough", "hoarseness", "recent cold"),
+            "negative_features": ("no cough", "no fever", "no sore throat"),
+            "follow_up": (
+                "Are symptoms mainly sore throat, runny nose, congestion, hoarseness, or cough?",
+            ),
+        },
+        "gerd": {
+            "aliases": ("gerd", "gastroesophageal reflux", "reflux"),
+            "commonness": "common",
+            "urgency": "routine",
+            "required_features": (),
+            "supporting_features": ("heartburn", "reflux", "after meals", "sour taste", "lying down", "burning"),
+            "negative_features": ("exertion", "pleuritic"),
+            "follow_up": (
+                "Does discomfort worsen after meals or lying down, with heartburn or sour taste?",
+            ),
+        },
+        "anemia": {
+            "aliases": ("anemia", "anaemia"),
+            "commonness": "common",
+            "urgency": "prompt",
+            "required_features": (),
+            "supporting_features": ("fatigue", "weakness", "dizziness", "shortness of breath", "palpitations", "pale"),
+            "negative_features": (),
+            "follow_up": (
+                "Is there unusual fatigue with dizziness, paleness, shortness of breath, or palpitations?",
+            ),
+        },
+        "hyperglycemia": {
+            "aliases": ("hyperglycemia", "diabetes", "diabetes mellitus"),
+            "commonness": "uncommon",
+            "urgency": "prompt",
+            "required_features": ("thirst", "polyuria", "frequent urination"),
+            "supporting_features": ("fatigue", "blurred vision", "weight loss", "glucose"),
+            "negative_features": ("no thirst", "no frequent urination"),
+            "follow_up": (
+                "Is there frequent urination, blurred vision, weight loss, or elevated glucose?",
+            ),
+        },
+    }
     FOLLOW_UP_QUESTION_BANK = (
         {
             "keywords": ("gerd", "reflux", "gastroesophageal"),
@@ -770,6 +937,273 @@ class DiagnosisEngine:
                 calibrated["mode"] = "ai_low_confidence"
         return calibrated
 
+    @classmethod
+    def _profile_for_label(cls, label: str) -> tuple[str, Dict[str, Any]] | tuple[None, None]:
+        normalized_label = cls._normalize_label(label)
+        if not normalized_label:
+            return None, None
+        for key, profile in cls.CONDITION_PROFILES.items():
+            aliases = tuple(profile.get("aliases", (key,)))
+            if any(
+                normalized_alias
+                and (normalized_alias in normalized_label or normalized_label in normalized_alias)
+                for normalized_alias in (cls._normalize_label(alias) for alias in aliases)
+            ):
+                return key, profile
+        return None, None
+
+    @classmethod
+    def _context_has_signal(cls, normalized_context: str, signal: str) -> bool:
+        normalized_signal = cls._normalize_label(signal)
+        return bool(normalized_signal and normalized_signal in normalized_context)
+
+    @classmethod
+    def _profile_signal_analysis(
+        cls,
+        profile: Dict[str, Any],
+        context_text: str,
+    ) -> Dict[str, list[str]]:
+        normalized_context = cls._normalize_label(context_text)
+        required = tuple(profile.get("required_features", ()))
+        supporting = tuple(profile.get("supporting_features", ()))
+        negative = tuple(profile.get("negative_features", ()))
+
+        required_present = [
+            signal for signal in required
+            if cls._context_has_signal(normalized_context, signal)
+            and not cls._is_negated_signal(normalized_context, signal)
+        ]
+        supporting_present = [
+            signal for signal in supporting
+            if cls._context_has_signal(normalized_context, signal)
+            and not cls._is_negated_signal(normalized_context, signal)
+        ]
+        negated_or_negative = [
+            signal for signal in required + supporting
+            if cls._context_has_signal(normalized_context, signal)
+            and cls._is_negated_signal(normalized_context, signal)
+        ]
+        explicit_negative = [
+            signal for signal in negative
+            if cls._context_has_signal(normalized_context, signal)
+        ]
+        missing_required = [
+            signal for signal in required
+            if signal not in required_present and signal not in negated_or_negative
+        ]
+        return {
+            "required_present": required_present,
+            "supporting_present": supporting_present,
+            "evidence_against": list(dict.fromkeys(negated_or_negative + explicit_negative)),
+            "missing_required": missing_required,
+        }
+
+    @classmethod
+    def _profile_candidate_confidence(
+        cls,
+        profile: Dict[str, Any],
+        analysis: Dict[str, list[str]],
+    ) -> float:
+        commonness = str(profile.get("commonness", "uncommon"))
+        required_present = len(analysis["required_present"])
+        supporting_present = len(analysis["supporting_present"])
+        evidence_against = len(analysis["evidence_against"])
+        missing_required = len(analysis["missing_required"])
+        has_required_policy = bool(profile.get("required_features"))
+        if has_required_policy and required_present == 0:
+            return 0.0
+        if not has_required_policy and supporting_present < 2:
+            return 0.0
+
+        confidence = (
+            0.30
+            + cls.COMMONNESS_PRIOR.get(commonness, 0.0)
+            + min(0.24, 0.10 * required_present)
+            + min(0.22, 0.06 * supporting_present)
+            - min(0.18, 0.06 * evidence_against)
+            - min(0.12, 0.03 * missing_required)
+        )
+        return max(0.0, min(confidence, 0.78))
+
+    @classmethod
+    def _add_profile_candidates(
+        cls,
+        merged: Dict[str, Dict[str, Any]],
+        *,
+        context_text: str,
+    ) -> None:
+        for key, profile in cls.CONDITION_PROFILES.items():
+            analysis = cls._profile_signal_analysis(profile, context_text)
+            confidence = cls._profile_candidate_confidence(profile, analysis)
+            if confidence <= 0.0:
+                continue
+            evidence = [
+                f"Required/supporting features present: {', '.join(analysis['required_present'] + analysis['supporting_present'])}."
+            ]
+            if analysis["evidence_against"]:
+                evidence.append(f"Evidence against: {', '.join(analysis['evidence_against'])}.")
+            cls._merge_candidate(
+                merged,
+                label=str(profile.get("label", key.title())),
+                confidence=confidence,
+                source="clinical_profile",
+                reasoning="Clinical profile candidate from required/supporting feature matching.",
+                evidence=evidence,
+            )
+
+    @classmethod
+    def _candidate_urgency(
+        cls,
+        candidate: Dict[str, Any],
+        findings: list[Dict[str, Any]],
+    ) -> str:
+        _, profile = cls._profile_for_label(str(candidate.get("label", "")))
+        if profile:
+            return str(profile.get("urgency", "routine"))
+        severity_by_condition = {
+            cls._normalize_label(str(item.get("condition", ""))): str(item.get("severity", "info")).lower()
+            for item in findings
+            if str(item.get("condition", "")).strip()
+        }
+        severity = severity_by_condition.get(cls._normalize_label(str(candidate.get("label", ""))), "info")
+        if severity == "critical":
+            return "emergency"
+        if severity == "high":
+            return "urgent"
+        if severity == "moderate":
+            return "prompt"
+        return "routine"
+
+    @classmethod
+    def _build_differential_diagnosis(
+        cls,
+        *,
+        candidates: list[Dict[str, Any]],
+        findings: list[Dict[str, Any]],
+        report_text: str,
+        patient_symptoms: list[str],
+        unsupported_scope_signals: list[str],
+    ) -> list[Dict[str, Any]]:
+        context_text = " ".join(
+            part for part in (report_text, " ".join(patient_symptoms or [])) if str(part).strip()
+        )
+        differential: list[Dict[str, Any]] = []
+
+        for candidate in candidates[:8]:
+            label = str(candidate.get("label", "")).strip()
+            if not label:
+                continue
+            _, profile = cls._profile_for_label(label)
+            analysis = cls._profile_signal_analysis(profile or {}, context_text) if profile else {
+                "required_present": [],
+                "supporting_present": [],
+                "evidence_against": [],
+                "missing_required": [],
+            }
+            evidence_for = list(dict.fromkeys(
+                [item for item in candidate.get("evidence", []) if str(item).strip()]
+                + [
+                    f"Matched clinical feature: {signal}"
+                    for signal in analysis["required_present"] + analysis["supporting_present"]
+                ]
+            ))
+            missing_evidence = list(dict.fromkeys(analysis["missing_required"]))
+            if profile and not missing_evidence:
+                missing_evidence = [
+                    signal for signal in profile.get("supporting_features", ())
+                    if signal not in analysis["supporting_present"]
+                ][:3]
+            differential.append(
+                {
+                    "label": label,
+                    "confidence": round(cls._normalize_confidence(candidate.get("confidence")), 2),
+                    "urgency": cls._candidate_urgency(candidate, findings),
+                    "evidence_for": evidence_for[:5],
+                    "evidence_against": list(dict.fromkeys(analysis["evidence_against"]))[:5],
+                    "missing_evidence": missing_evidence[:5],
+                    "recommended_follow_up_questions": list(profile.get("follow_up", ()))[:3] if profile else [],
+                    "sources": list(candidate.get("sources", [])),
+                }
+            )
+
+        if unsupported_scope_signals:
+            differential.insert(
+                0,
+                {
+                    "label": "Emergency red-flag presentation",
+                    "confidence": 0.5,
+                    "urgency": "emergency",
+                    "evidence_for": [f"Detected red-flag signal: {signal}" for signal in unsupported_scope_signals],
+                    "evidence_against": [],
+                    "missing_evidence": ["Needs immediate professional evaluation rather than app-only diagnosis."],
+                    "recommended_follow_up_questions": [],
+                    "sources": ["safety_scope_gate"],
+                },
+            )
+
+        seen: set[str] = set()
+        unique: list[Dict[str, Any]] = []
+        for item in differential:
+            key = cls._normalize_label(str(item.get("label", "")))
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            unique.append(item)
+        return sorted(
+            unique,
+            key=lambda item: (
+                float(item.get("confidence", 0.0)),
+                (
+                    {"emergency": 3, "urgent": 2, "prompt": 1, "routine": 0}.get(str(item.get("urgency")), 0)
+                    if float(item.get("confidence", 0.0)) >= 0.45
+                    else 0
+                ),
+            ),
+            reverse=True,
+        )[:6]
+
+    @classmethod
+    def _final_diagnosis_is_sufficient(
+        cls,
+        final_diagnosis: Optional[Dict[str, Any]],
+        *,
+        findings: list[Dict[str, Any]],
+        differential: list[Dict[str, Any]],
+    ) -> bool:
+        if not final_diagnosis:
+            return False
+        source = str(final_diagnosis.get("source", "")).strip().lower()
+        confidence = cls._normalize_confidence(final_diagnosis.get("confidence"))
+        label = str(final_diagnosis.get("diagnosis", "")).strip()
+
+        if source == "safety_scope_gate":
+            return True
+        if any(str(item.get("source", "")) == "lab_rules" for item in findings):
+            return True
+        if source == "rules_fallback" and not any(str(item.get("source", "")) == "lab_rules" for item in findings):
+            return False
+        if source == "classifier" and confidence >= 0.88:
+            return True
+
+        _, profile = cls._profile_for_label(label)
+        urgency = str(profile.get("urgency", "")) if profile else ""
+        min_confidence = (
+            cls.SERIOUS_FINAL_DIAGNOSIS_MIN_CONFIDENCE
+            if urgency in {"emergency", "urgent"}
+            else cls.FINAL_DIAGNOSIS_MIN_CONFIDENCE
+        )
+        if confidence < min_confidence:
+            return False
+
+        if differential:
+            top = differential[0]
+            top_label = str(top.get("label", ""))
+            if not cls._labels_overlap(top_label, label):
+                return False
+            if top.get("missing_evidence") and urgency in {"emergency", "urgent"}:
+                return False
+        return True
+
     @staticmethod
     def _labels_overlap(left: str, right: str) -> bool:
         left_normalized = str(left or "").strip().lower()
@@ -896,6 +1330,11 @@ class DiagnosisEngine:
                 reasoning="Deterministic rule-based clinical signal.",
                 evidence=[str(finding.get("evidence", "")).strip() or f"Rule finding: {label}"],
             )
+
+        context_text = " ".join(
+            part for part in (report_text, " ".join(patient_symptoms or [])) if str(part).strip()
+        )
+        cls._add_profile_candidates(merged, context_text=context_text)
 
         expanded = cls._expand_base_diagnostic_candidates(
             list(merged.values()),
@@ -3329,8 +3768,6 @@ class DiagnosisEngine:
             rag_out=rag_out,
             classifier_prediction=classifier_prediction,
         )
-        if final_diagnosis:
-            result["final_diagnosis"] = final_diagnosis
 
         candidates = self._collect_diagnostic_candidates(
             findings=findings_payload,
@@ -3350,8 +3787,25 @@ class DiagnosisEngine:
             patient_symptoms=patient_symptoms,
             unsupported_scope_signals=unsupported_scope_signals,
         )
-        if final_diagnosis:
+        differential_diagnosis = self._build_differential_diagnosis(
+            candidates=candidates,
+            findings=findings_payload,
+            report_text=combined,
+            patient_symptoms=patient_symptoms,
+            unsupported_scope_signals=unsupported_scope_signals,
+        )
+        if differential_diagnosis:
+            result["differential_diagnosis"] = differential_diagnosis
+
+        if self._final_diagnosis_is_sufficient(
+            final_diagnosis,
+            findings=findings_payload,
+            differential=differential_diagnosis,
+        ):
             result["final_diagnosis"] = final_diagnosis
+        else:
+            final_diagnosis = None
+            result.pop("final_diagnosis", None)
         if candidates:
             result["diagnostic_candidates"] = [
                 {
