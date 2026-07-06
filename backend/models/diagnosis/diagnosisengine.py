@@ -3797,15 +3797,25 @@ class DiagnosisEngine:
         if differential_diagnosis:
             result["differential_diagnosis"] = differential_diagnosis
 
-        if self._final_diagnosis_is_sufficient(
+        final_diagnosis_sufficient = self._final_diagnosis_is_sufficient(
             final_diagnosis,
             findings=findings_payload,
             differential=differential_diagnosis,
-        ):
+        )
+        if final_diagnosis_sufficient:
             result["final_diagnosis"] = final_diagnosis
-        else:
-            final_diagnosis = None
-            result.pop("final_diagnosis", None)
+        elif final_diagnosis:
+            provisional = dict(final_diagnosis)
+            provisional["mode"] = "needs_clarification"
+            provisional["status"] = "provisional_low_confidence"
+            provisional["clinician_review_required"] = True
+            provisional["reasoning"] = (
+                str(provisional.get("reasoning", "")).strip()
+                or "Candidate diagnosis is available, but confidence or evidence agreement is insufficient for a confident final answer."
+            )
+            provisional["reasoning"] += " Additional clarification is recommended before treating this as a final diagnosis."
+            result["final_diagnosis"] = provisional
+            final_diagnosis = provisional
         if candidates:
             result["diagnostic_candidates"] = [
                 {
