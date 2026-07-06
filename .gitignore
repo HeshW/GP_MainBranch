@@ -10,6 +10,7 @@ venv/
 presentation/
 Mego Merge/
 tools/
+docs/
 
 # Local presentation/demo artifacts
 docs/demo.*
