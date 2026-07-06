@@ -94,6 +94,7 @@ export interface AnalysisResponse {
       reasons?: string[];
       questions?: Array<{
         question: string;
+        question_ar?: string;
         type?: string;
         target_conditions?: string[];
         reason?: string;

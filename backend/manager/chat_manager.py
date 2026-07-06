@@ -239,6 +239,7 @@ class ChatManager:
         )
         normalized_text = build_normalized_symptom_text(parsed, validated)
         validated["raw_text"] = normalized_text
+        validated["raw_text_original"] = text
         manual_input = build_manual_input_from_validated(validated)
 
         pipeline_result = await self.run_pipeline(manual_input=manual_input)

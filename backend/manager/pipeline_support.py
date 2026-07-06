@@ -45,6 +45,10 @@ async def build_report(
         if raw_text:
             report["raw_text"] = str(raw_text).strip()
 
+        raw_text_original = manual_input.get("raw_text_original")
+        if raw_text_original:
+            report["raw_text_original"] = str(raw_text_original).strip()
+
         symptoms = manual_input.get("symptoms")
         if symptoms:
             if report.get("raw_text"):
@@ -68,7 +72,7 @@ async def build_report(
 
 
 def build_manual_input_from_validated(validated: Dict[str, Any]) -> Dict[str, Any]:
-    return {
+    manual_input = {
         "symptoms": " ".join(validated.get("symptoms", [])),
         "symptom_list": list(validated.get("symptoms", [])),
         "raw_text": validated.get("raw_text", ""),
@@ -77,6 +81,10 @@ def build_manual_input_from_validated(validated: Dict[str, Any]) -> Dict[str, An
             for key, value in validated.get("labs", {}).items()
         },
     }
+    raw_text_original = validated.get("raw_text_original")
+    if raw_text_original:
+        manual_input["raw_text_original"] = raw_text_original
+    return manual_input
 
 
 def merge_follow_up_into_report(

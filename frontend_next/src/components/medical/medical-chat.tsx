@@ -27,6 +27,12 @@ type ClarificationContext = {
   report: Record<string, unknown>;
   diagnosis: Record<string, unknown> | undefined;
   questions: string[];
+  language: "en" | "ar";
+};
+
+type StoredAnalysisMessage = {
+  text: string;
+  analysis: AnalysisResponse;
 };
 
 type MedicalChatProps = {
@@ -35,10 +41,208 @@ type MedicalChatProps = {
   userName?: string;
 };
 
+const ANALYSIS_MESSAGE_PREFIX = "__NABDA_ANALYSIS_V1__:";
+
 const DEFAULT_LABS_JSON = `{
   "glucose": 145,
   "hemoglobin": 11.2
 }`;
+
+const ARABIC_MEDICAL_TERMS: Record<string, string> = {
+  "acute asthma exacerbation": "نوبة ربو حادة",
+  "acute laryngitis": "التهاب الحنجرة الحاد",
+  "acute rhinosinusitis": "التهاب الجيوب الأنفية الحاد",
+  "acute viral illness": "عدوى فيروسية حادة",
+  "anaphylaxis": "حساسية مفرطة",
+  "anemia": "فقر الدم",
+  "anaemia": "فقر الدم",
+  "atrial fibrillation": "رجفان أذيني",
+  "bronchitis": "التهاب الشعب الهوائية",
+  "bronchospasm": "تشنج قصبي",
+  "chronic rhinosinusitis": "التهاب الجيوب الأنفية المزمن",
+  "dehydration": "جفاف",
+  "diabetes": "السكري",
+  "diabetes mellitus": "داء السكري",
+  "emergency red-flag presentation": "أعراض إنذار طارئة",
+  "gerd": "ارتجاع معدي مريئي",
+  "gastroesophageal reflux": "ارتجاع معدي مريئي",
+  "guillain barre": "متلازمة غيلان باريه",
+  "guillain-barr": "متلازمة غيلان باريه",
+  "heart attack": "نوبة قلبية",
+  "hyperglycemia": "ارتفاع سكر الدم",
+  "laryngospasm": "تشنج الحنجرة",
+  "localized edema": "تورم موضعي",
+  "lower respiratory infection": "عدوى بالجهاز التنفسي السفلي",
+  "myasthenia gravis": "الوهن العضلي الوبيل",
+  "myocardial infarction": "احتشاء عضلة القلب",
+  "myocarditis": "التهاب عضلة القلب",
+  "panic attack": "نوبة هلع",
+  "pancreatic neoplasm": "ورم بالبنكرياس",
+  "pericarditis": "التهاب غشاء القلب",
+  "pneumonia": "التهاب رئوي",
+  "possible acute viral illness pattern": "نمط محتمل لعدوى فيروسية حادة",
+  "possible anemia-related symptom pattern": "نمط أعراض محتمل مرتبط بفقر الدم",
+  "possible cardiopulmonary red-flag symptom pattern": "نمط أعراض إنذار قلبي رئوي محتمل",
+  "possible gastroesophageal reflux pattern": "نمط محتمل لارتجاع معدي مريئي",
+  "possible hyperglycemia / diabetes symptom pattern": "نمط أعراض محتمل لارتفاع السكر أو السكري",
+  "possible lower respiratory infection pattern": "نمط محتمل لعدوى الجهاز التنفسي السفلي",
+  "possible upper respiratory tract infection pattern": "نمط محتمل لعدوى الجهاز التنفسي العلوي",
+  "prediabetes": "مرحلة ما قبل السكري",
+  "psvt": "تسرع قلب فوق بطيني انتيابي",
+  "pulmonary embolism": "انسداد رئوي",
+  "pulmonary neoplasm": "ورم بالرئة",
+  "reflux": "ارتجاع",
+  "serious infection": "عدوى خطيرة",
+  "stable angina": "ذبحة صدرية مستقرة",
+  "stroke-like emergency": "حالة طارئة شبيهة بالسكتة الدماغية",
+  "unstable angina": "ذبحة صدرية غير مستقرة",
+  "upper respiratory tract infection": "عدوى الجهاز التنفسي العلوي",
+  "urti": "عدوى الجهاز التنفسي العلوي",
+  "viral pharyngitis": "التهاب بلعوم فيروسي",
+};
+
+const ARABIC_MEDICAL_PHRASES: Record<string, string> = {
+  "Additional clarification is recommended before treating this as a final diagnosis.":
+    "ينصح بالحصول على معلومات إضافية قبل التعامل مع هذا كتوصيف تشخيصي نهائي.",
+  "Answering the follow-up questions will help refine the diagnosis.":
+    "الإجابة على أسئلة المتابعة ستساعد في تحسين دقة التشخيص.",
+  "Candidate diagnosis is available, but confidence or evidence agreement is insufficient for a confident final answer.":
+    "يوجد تشخيص مرشح، لكن درجة الثقة أو توافق الأدلة غير كافيين لإجابة نهائية مؤكدة.",
+  "Classifier candidate": "مرشح المصنف",
+  "Diagnostic label canonicalized from": "تم توحيد اسم التشخيص من",
+  "Follow-up questions are needed before making a stronger diagnostic claim.":
+    "هناك حاجة إلى أسئلة متابعة قبل تقديم ترجيح تشخيصي أقوى.",
+  "Needs immediate professional evaluation rather than app-only diagnosis.":
+    "يحتاج إلى تقييم طبي فوري بدلا من الاعتماد على تشخيص التطبيق فقط.",
+  "No clinically significant findings detected.": "لم يتم اكتشاف نتائج ذات دلالة سريرية مهمة.",
+  "Rule findings": "نتائج القواعد",
+  "Rule safety findings": "نتائج قواعد السلامة",
+  "Rule safety layer flagged": "طبقة السلامة بالقواعد رصدت",
+  "Therapy generation is disabled for this deployment and will be re-enabled in a later milestone. Please rely on diagnosis output and clinician review for now.":
+    "إنشاء الخطة العلاجية غير مفعل في هذا الإصدار وسيتم تفعيله لاحقا. يرجى الاعتماد حاليا على نتيجة التشخيص ومراجعة الطبيب.",
+  "Top retrieved case pathology": "تشخيص أقرب حالة مسترجعة",
+};
+
+const ARABIC_MEDICAL_QUESTIONS: Record<string, string> = {
+  "Are symptoms mainly fluctuating eye/bulbar weakness (ptosis, speech/swallow fatigue), or more ascending limb weakness with tingling?":
+    "هل الأعراض أساسا ضعف متذبذب بالعين أو البلع والكلام، أم ضعف صاعد بالأطراف مع تنميل؟",
+  "Are symptoms mainly sore throat, runny nose, congestion, hoarseness, or cough?":
+    "هل الأعراض أساسا ألم بالحلق أو رشح أو احتقان أو بحة صوت أو كحة؟",
+  "Are symptoms mainly wheeze/chest tightness without fever or productive sputum, and do bronchodilators help?":
+    "هل الأعراض أساسا صفير أو ضيق بالصدر بدون حمى أو بلغم، وهل تتحسن مع موسعات الشعب؟",
+  "Are the palpitations irregular and uneven, or mostly sudden fast episodes that start and stop abruptly?":
+    "هل الخفقان غير منتظم ومتفاوت، أم نوبات سريعة مفاجئة تبدأ وتنتهي فجأة؟",
+  "Are you also having dizziness, shortness of breath on exertion, paleness, or unusual fatigue?":
+    "هل لديك أيضا دوخة أو ضيق نفس مع المجهود أو شحوب أو تعب غير معتاد؟",
+  "Did the breathing problem start suddenly?":
+    "هل بدأت مشكلة التنفس فجأة؟",
+  "Did the shortness of breath start suddenly, or was there recent immobility, leg swelling, or chest pain that worsens with breathing?":
+    "هل بدأ ضيق التنفس فجأة؟ وهل كان هناك قلة حركة مؤخرا أو تورم بالساق أو ألم صدر يزيد مع التنفس؟",
+  "Did weakness, facial droop, or speech trouble start suddenly?":
+    "هل بدأ الضعف أو ميل الوجه أو صعوبة الكلام فجأة؟",
+  "Do you also have fever, cough, sore throat, or nasal congestion?":
+    "هل لديك أيضا حمى أو كحة أو ألم بالحلق أو احتقان بالأنف؟",
+  "Do you get sudden episodes of difficulty breathing or a high-pitched sound when breathing in?":
+    "هل تحدث نوبات مفاجئة من صعوبة التنفس أو صوت صفير حاد عند الشهيق؟",
+  "Do you have clear infection signs (fever with productive cough), or mostly wheeze/chest tightness without infection features?":
+    "هل لديك علامات عدوى واضحة مثل حمى مع كحة ببلغم، أم صفير أو ضيق صدر بدون علامات عدوى؟",
+  "Do you have drooping eyelids, double vision, difficulty speaking or swallowing, or worsening weakness over the day?":
+    "هل لديك تدلي بالجفن أو ازدواج بالرؤية أو صعوبة بالكلام أو البلع أو ضعف يزداد خلال اليوم؟",
+  "Do you have pleuritic chest pain or higher-fever infection signs (favoring pneumonia), or mostly lingering cough after a recent cold (favoring bronchitis)?":
+    "هل لديك ألم صدر يزيد مع التنفس أو علامات عدوى أشد ترجح الالتهاب الرئوي، أم كحة ممتدة بعد نزلة برد ترجح التهاب الشعب؟",
+  "Do your symptoms get worse after meals or when lying down, with a sour or acidic taste in the mouth?":
+    "هل تزيد الأعراض بعد الأكل أو عند الاستلقاء مع طعم حامضي أو حرقان بالفم؟",
+  "Does discomfort worsen after meals or lying down, with heartburn or sour taste?":
+    "هل يزيد الانزعاج بعد الأكل أو عند الاستلقاء مع حرقان أو طعم حامضي؟",
+  "Does the chest discomfort appear with exertion and improve with rest?":
+    "هل يظهر ألم أو ضيق الصدر مع المجهود ويتحسن بالراحة؟",
+  "Has cough or weight loss been persistent or progressive over weeks to months?":
+    "هل الكحة أو فقدان الوزن مستمران أو يتزايدان منذ أسابيع إلى شهور؟",
+  "Has fluid intake been low, or is urine darker than usual?":
+    "هل كان شرب السوائل قليلا أو البول أغمق من المعتاد؟",
+  "Have you noticed increased thirst, frequent urination, weight loss, or blurred vision?":
+    "هل لاحظت زيادة في العطش أو كثرة التبول أو فقدان وزن أو زغللة في النظر؟",
+  "Is the chest discomfort related to exertion, deep breathing, or an irregular heartbeat/palpitations?":
+    "هل ألم الصدر مرتبط بالمجهود أو التنفس العميق أو خفقان أو عدم انتظام ضربات القلب؟",
+  "Is the chest pain appearing at rest or worsening recently, versus mainly with exertion and improving with rest?":
+    "هل ألم الصدر يظهر أثناء الراحة أو يزداد مؤخرا، أم يحدث أساسا مع المجهود ويتحسن بالراحة؟",
+  "Is there chest pain, shortness of breath, palpitations, or fainting?":
+    "هل يوجد ألم بالصدر أو ضيق نفس أو خفقان أو إغماء؟",
+  "Is there confusion, stiff neck, severe headache, rash, or rapidly worsening fever?":
+    "هل يوجد تشوش أو تيبس بالرقبة أو صداع شديد أو طفح أو حمى تزداد بسرعة؟",
+  "Is there fever with productive cough, chills, or pleuritic chest pain?":
+    "هل توجد حمى مع كحة ببلغم أو رعشة أو ألم صدر يزيد مع التنفس؟",
+  "Is there frequent urination, blurred vision, weight loss, or elevated glucose?":
+    "هل يوجد كثرة تبول أو زغللة في النظر أو فقدان وزن أو ارتفاع في السكر؟",
+  "Is there progressive upper abdominal pain, weight loss, appetite loss, or jaundice?":
+    "هل يوجد ألم متزايد بأعلى البطن أو فقدان وزن أو فقدان شهية أو اصفرار؟",
+  "Is there unusual fatigue with dizziness, paleness, shortness of breath, or palpitations?":
+    "هل يوجد تعب غير معتاد مع دوخة أو شحوب أو ضيق نفس أو خفقان؟",
+  "Is there pleuritic chest pain, leg swelling, recent immobility, or recent surgery?":
+    "هل يوجد ألم صدر يزيد مع التنفس أو تورم بالساق أو قلة حركة مؤخرا أو جراحة حديثة؟",
+  "Was the breathing problem sudden with pleuritic pain or leg swelling, or did it follow a gradual upper respiratory infection?":
+    "هل بدأت مشكلة التنفس فجأة مع ألم يزيد بالتنفس أو تورم ساق، أم جاءت تدريجيا بعد عدوى تنفسية علوية؟",
+  "Was there a recent viral illness before the chest symptoms?":
+    "هل سبقت أعراض الصدر عدوى فيروسية حديثة؟",
+};
+
+const ARABIC_URGENCY_LABELS: Record<string, string> = {
+  emergency: "طارئ",
+  urgent: "عاجل",
+  prompt: "قريب",
+  routine: "روتيني",
+};
+
+const ARABIC_EVIDENCE_TERMS: Record<string, string> = {
+  "abdominal pain": "ألم بالبطن",
+  "appetite loss": "فقدان الشهية",
+  "blurred vision": "زغللة في النظر",
+  "chest discomfort": "انزعاج بالصدر",
+  "chest pain": "ألم بالصدر",
+  "chest pressure": "ضغط بالصدر",
+  "chest tightness": "ضيق بالصدر",
+  "chills": "رعشة",
+  "chronic cough": "كحة مزمنة",
+  "confusion": "تشوش",
+  "cough": "كحة",
+  "deep breathing": "تنفس عميق",
+  "dizziness": "دوخة",
+  "dry mouth": "جفاف الفم",
+  "dyspnea": "ضيق نفس",
+  "elevated glucose": "ارتفاع السكر",
+  "exertion": "مجهود",
+  "facial droop": "ميل بالوجه",
+  "fainting": "إغماء",
+  "fatigue": "تعب",
+  "fever": "حمى",
+  "frequent urination": "كثرة التبول",
+  "heartburn": "حرقان",
+  "hoarseness": "بحة صوت",
+  "immobility": "قلة حركة",
+  "irregular heartbeat": "عدم انتظام ضربات القلب",
+  "jaundice": "اصفرار",
+  "leg swelling": "تورم بالساق",
+  "myalgia": "آلام عضلية",
+  "nasal congestion": "احتقان بالأنف",
+  "palpitations": "خفقان",
+  "paleness": "شحوب",
+  "pleuritic": "يزيد مع التنفس",
+  "productive cough": "كحة ببلغم",
+  "rash": "طفح",
+  "recent surgery": "جراحة حديثة",
+  "recent viral illness": "عدوى فيروسية حديثة",
+  "reduced intake": "قلة تناول السوائل أو الطعام",
+  "shortness of breath": "ضيق نفس",
+  "sore throat": "ألم بالحلق",
+  "sour taste": "طعم حامضي",
+  "sputum": "بلغم",
+  "sudden": "مفاجئ",
+  "thirst": "عطش",
+  "viral prodrome": "أعراض فيروسية سابقة",
+  "weakness": "ضعف",
+  "weight loss": "فقدان وزن",
+  "wheezing": "صفير",
+};
 
 function createSessionId() {
   return `session-${Math.random().toString(36).slice(2, 10)}`;
@@ -57,19 +261,119 @@ function parseLabsJson(labsJson: string): Record<string, unknown> {
 }
 
 function symptomHeuristic(text: string): boolean {
-  return /pain|fever|cough|fatigue|dizziness|thirst|nausea|vomit|headache|chest|breath|rash|sore|حمى|ألم|وجع|كحة|صداع|دوخة|غثيان/i.test(
+  return /pain|fever|cough|fatigue|dizziness|thirst|nausea|vomit|headache|chest|breath|rash|sore|حمى|ألم|الم|وجع|كحة|سعال|صداع|دوخة|غثيان|صدر|تنفس/i.test(
     text,
   );
 }
 
+function normalizeLookupKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[._-]+/g, " ").replace(/\s+/g, " ");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function localizeExact(value: string | undefined, dictionary: Record<string, string>): string | undefined {
+  if (!value) return value;
+  return dictionary[normalizeLookupKey(value)] ?? dictionary[value.trim()] ?? value;
+}
+
+function replaceKnownTerms(value: string, dictionary: Record<string, string>): string {
+  return Object.entries(dictionary)
+    .sort(([left], [right]) => right.length - left.length)
+    .reduce((current, [english, arabic]) => {
+      const pattern = new RegExp(`(^|[^\\p{L}\\p{N}])(${escapeRegExp(english)})(?=$|[^\\p{L}\\p{N}])`, "giu");
+      return current.replace(pattern, `$1${arabic}`);
+    }, value);
+}
+
+function localizeMedicalText(value: string | undefined, isArabic: boolean): string {
+  if (!value) return "";
+  if (!isArabic) return value;
+
+  const exactQuestion = ARABIC_MEDICAL_QUESTIONS[value.trim()];
+  if (exactQuestion) return exactQuestion;
+
+  const exactTerm = localizeExact(value, ARABIC_MEDICAL_TERMS);
+  if (exactTerm && exactTerm !== value) return exactTerm;
+
+  let translated = value;
+  translated = replaceKnownTerms(translated, ARABIC_MEDICAL_PHRASES);
+  translated = replaceKnownTerms(translated, ARABIC_MEDICAL_TERMS);
+  translated = replaceKnownTerms(translated, ARABIC_EVIDENCE_TERMS);
+  return translated;
+}
+
+function localizeList(values: string[] | undefined, isArabic: boolean): string {
+  return (values ?? [])
+    .map((item) => localizeMedicalText(item, isArabic))
+    .filter(Boolean)
+    .join(isArabic ? "، " : ", ");
+}
+
+function getAnalysisLanguage(result: AnalysisResponse): "en" | "ar" {
+  const diagnosis = result.diagnosis as
+    | (AnalysisResponse["diagnosis"] & { response_language?: string })
+    | undefined;
+  const responseLanguage =
+    diagnosis?.ai_response_metadata?.response_language ??
+    diagnosis?.gemini_response_metadata?.response_language ??
+    diagnosis?.response_language;
+
+  if (String(responseLanguage ?? "").toLowerCase().startsWith("ar")) return "ar";
+
+  const sourceText = JSON.stringify({
+    report: result.report,
+    parsed: result.parsed,
+    follow_up: result.follow_up,
+    response: getResponseText(result),
+  });
+  return /[\u0600-\u06FF]/.test(sourceText) ? "ar" : "en";
+}
+
 function summarizeAnalysis(result: AnalysisResponse): string {
+  const isArabic = getAnalysisLanguage(result) === "ar";
   const topDifferential = result.diagnosis?.differential_diagnosis?.[0]?.label;
-  const diagnosis = result.diagnosis?.final_diagnosis?.diagnosis ?? topDifferential ?? "No final diagnosis";
+  const diagnosis =
+    result.diagnosis?.final_diagnosis?.diagnosis ??
+    topDifferential ??
+    (isArabic ? "لا يوجد تشخيص نهائي" : "No final diagnosis");
+  const localizedDiagnosis = localizeMedicalText(diagnosis, isArabic);
   const confidence = result.diagnosis?.final_diagnosis?.confidence;
   const confidenceText = confidence === undefined ? "n/a" : String(confidence);
+
+  if (isArabic) {
+    return result.diagnosis?.final_diagnosis
+      ? `اكتمل التحليل. الحالة المرجحة: ${localizedDiagnosis}. درجة الثقة: ${confidenceText}.`
+      : `اكتمل التحليل. لا يوجد تشخيص نهائي بعد. التشخيص التفريقي الأبرز: ${localizedDiagnosis}.`;
+  }
+
   return result.diagnosis?.final_diagnosis
     ? `Analysis completed. Likely condition: ${diagnosis}. Confidence: ${confidenceText}.`
     : `Analysis completed. No final diagnosis yet. Leading differential: ${diagnosis}.`;
+}
+
+function serializeAnalysisMessage(analysis: AnalysisResponse): string {
+  return `${ANALYSIS_MESSAGE_PREFIX}${JSON.stringify({
+    text: summarizeAnalysis(analysis),
+    analysis,
+  } satisfies StoredAnalysisMessage)}`;
+}
+
+function parseStoredAnalysisMessage(content: string): StoredAnalysisMessage | null {
+  if (!content.startsWith(ANALYSIS_MESSAGE_PREFIX)) return null;
+
+  try {
+    const parsed = JSON.parse(content.slice(ANALYSIS_MESSAGE_PREFIX.length)) as Partial<StoredAnalysisMessage>;
+    if (!parsed.analysis || typeof parsed.analysis !== "object") return null;
+    return {
+      text: typeof parsed.text === "string" && parsed.text.trim() ? parsed.text : summarizeAnalysis(parsed.analysis),
+      analysis: parsed.analysis,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function normalizeForCompare(value: string | undefined): string {
@@ -85,6 +389,7 @@ function getResponseText(analysis: AnalysisResponse): string | undefined {
 }
 
 function AnalysisCard({ analysis }: { analysis: AnalysisResponse }) {
+  const isArabic = getAnalysisLanguage(analysis) === "ar";
   const diagnosis = analysis.diagnosis?.final_diagnosis;
   const differential = analysis.diagnosis?.differential_diagnosis ?? [];
   const responseText = getResponseText(analysis);
@@ -96,6 +401,9 @@ function AnalysisCard({ analysis }: { analysis: AnalysisResponse }) {
     const normalizedItem = normalizeForCompare(item);
     return normalizedItem && !normalizedResponse.includes(normalizedItem);
   });
+  const localizedDiagnosis = localizeMedicalText(diagnosis?.diagnosis, isArabic);
+  const localizedResponseText = localizeMedicalText(responseText, isArabic);
+  const localizedTherapy = localizeMedicalText(therapy, isArabic);
 
   return (
     <div className="rounded-3xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4 text-[var(--brand-text)] shadow-[var(--brand-shadow)]">
@@ -103,32 +411,37 @@ function AnalysisCard({ analysis }: { analysis: AnalysisResponse }) {
         <div>
           <p className="text-xs font-semibold uppercase text-[var(--brand-primary)]">Nabda analysis</p>
           <h3 className="mt-1 text-lg font-semibold text-[var(--brand-heading)]">
-            {diagnosis?.diagnosis ?? "Differential diagnosis pending"}
+            {localizedDiagnosis || (isArabic ? "التشخيص التفريقي قيد الانتظار" : "Differential diagnosis pending")}
           </h3>
         </div>
         {diagnosis?.confidence !== undefined ? (
           <span className="rounded-2xl bg-[var(--brand-soft)] px-3 py-1 text-xs font-semibold text-[var(--brand-primary)]">
-            Confidence {String(diagnosis.confidence)}
+            {isArabic ? "الثقة" : "Confidence"} {String(diagnosis.confidence)}
           </span>
         ) : null}
       </div>
 
-      {responseText ? <p className="mt-4 whitespace-pre-wrap text-sm leading-6">{responseText}</p> : null}
+      {localizedResponseText ? <p className="mt-4 whitespace-pre-wrap text-sm leading-6">{localizedResponseText}</p> : null}
       {differential.length ? (
         <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white/70 p-3">
-          <p className="text-xs font-semibold uppercase text-[var(--brand-primary)]">Differential diagnosis</p>
+          <p className="text-xs font-semibold uppercase text-[var(--brand-primary)]">
+            {isArabic ? "التشخيص التفريقي" : "Differential diagnosis"}
+          </p>
           <div className="mt-2 space-y-2">
             {differential.slice(0, 4).map((item) => (
               <div key={item.label} className="rounded-2xl bg-[var(--brand-soft)] px-3 py-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-[var(--brand-heading)]">{item.label}</p>
+                  <p className="text-sm font-semibold text-[var(--brand-heading)]">
+                    {localizeMedicalText(item.label, isArabic)}
+                  </p>
                   <span className="text-xs font-semibold uppercase text-[var(--brand-primary)]">
-                    {item.urgency ?? "routine"} | {item.confidence ?? "n/a"}
+                    {isArabic ? localizeExact(item.urgency ?? "routine", ARABIC_URGENCY_LABELS) : item.urgency ?? "routine"} | {item.confidence ?? "n/a"}
                   </span>
                 </div>
                 {item.missing_evidence?.length ? (
                   <p className="mt-1 text-xs leading-5 text-[var(--brand-muted)]">
-                    Missing: {item.missing_evidence.slice(0, 3).join(", ")}
+                    {isArabic ? "البيانات الناقصة: " : "Missing: "}
+                    {localizeList(item.missing_evidence.slice(0, 3), isArabic)}
                   </p>
                 ) : null}
               </div>
@@ -138,16 +451,19 @@ function AnalysisCard({ analysis }: { analysis: AnalysisResponse }) {
       ) : null}
       {therapy ? (
         <p className="mt-3 rounded-2xl bg-[var(--brand-soft)] px-3 py-2 text-sm leading-6 text-[var(--brand-text)]">
-          Therapy: {therapy}
+          {isArabic ? "الخطة العلاجية: " : "Therapy: "}
+          {localizedTherapy}
         </p>
       ) : null}
 
       {visibleSafetyReasons.length ? (
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3">
-          <p className="text-xs font-semibold uppercase text-amber-900">Safety notes</p>
+          <p className="text-xs font-semibold uppercase text-amber-900">
+            {isArabic ? "ملاحظات السلامة" : "Safety notes"}
+          </p>
           <ul className="mt-2 space-y-1 text-sm leading-6 text-amber-950">
             {visibleSafetyReasons.map((item) => (
-              <li key={item}>{item}</li>
+              <li key={item}>{localizeMedicalText(item, isArabic)}</li>
             ))}
           </ul>
         </div>
@@ -155,10 +471,14 @@ function AnalysisCard({ analysis }: { analysis: AnalysisResponse }) {
 
       {clarification?.needed ? (
         <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft)] p-3">
-          <p className="text-xs font-semibold uppercase text-[var(--brand-primary)]">Follow-up questions</p>
+          <p className="text-xs font-semibold uppercase text-[var(--brand-primary)]">
+            {isArabic ? "أسئلة متابعة" : "Follow-up questions"}
+          </p>
           <ul className="mt-2 space-y-1 text-sm leading-6 text-[var(--brand-text)]">
             {(clarification.questions ?? []).map((item) => (
-              <li key={item.question}>{item.question}</li>
+              <li key={item.question}>
+                {localizeMedicalText(item.question_ar ?? item.question, isArabic)}
+              </li>
             ))}
           </ul>
         </div>
@@ -231,12 +551,25 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
         const items = await fetchChatMessages(token as string, activeChatId as number);
         if (!active) return;
         setMessages(
-          items.map((item) => ({
-            id: `stored-${item.id}`,
-            role: item.role,
-            kind: "text",
-            content: item.content,
-          })),
+          items.map((item) => {
+            const storedAnalysis = item.role === "assistant" ? parseStoredAnalysisMessage(item.content) : null;
+            if (storedAnalysis) {
+              return {
+                id: `stored-${item.id}`,
+                role: item.role,
+                kind: "analysis",
+                content: storedAnalysis.text,
+                payload: storedAnalysis.analysis,
+              };
+            }
+
+            return {
+              id: `stored-${item.id}`,
+              role: item.role,
+              kind: "text",
+              content: item.content,
+            };
+          }),
         );
       } catch (error) {
         if (!active) return;
@@ -305,6 +638,7 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
 
   const addAnalysis = (analysis: AnalysisResponse) => {
     const summary = summarizeAnalysis(analysis);
+    const isArabic = getAnalysisLanguage(analysis) === "ar";
     setMessages((current) => [
       ...current,
       {
@@ -322,8 +656,9 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
         report: analysis.report,
         diagnosis: analysis.diagnosis as Record<string, unknown> | undefined,
         questions: (clarification.questions ?? [])
-          .map((item) => item.question)
+          .map((item) => localizeMedicalText(item.question_ar ?? item.question, isArabic))
           .filter((item) => item.trim().length > 0),
+        language: isArabic ? "ar" : "en",
       });
     } else {
       setClarificationContext(null);
@@ -436,27 +771,27 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
           diagnosis: clarificationContext.diagnosis,
           answers: answers.length ? answers : [trimmed],
         });
-        const assistantSummary = addAnalysis(analysis);
-        await persistTurn(userSummary || "Submitted", assistantSummary);
+        addAnalysis(analysis);
+        await persistTurn(userSummary || "Submitted", serializeAnalysisMessage(analysis));
       } else if (action === "image" && imageFile) {
         const analysis = await postImage(imageFile);
-        const assistantSummary = addAnalysis(analysis);
-        await persistTurn(userSummary || "Submitted", assistantSummary);
+        addAnalysis(analysis);
+        await persistTurn(userSummary || "Submitted", serializeAnalysisMessage(analysis));
         setImageFile(null);
       } else if (action === "labs") {
         const analysis = await postLabs({
           labs: parseLabsJson(labsJson),
           symptoms: trimmed || undefined,
         });
-        const assistantSummary = addAnalysis(analysis);
-        await persistTurn(userSummary || "Submitted", assistantSummary);
+        addAnalysis(analysis);
+        await persistTurn(userSummary || "Submitted", serializeAnalysisMessage(analysis));
       } else if (action === "symptoms") {
         const analysis = await postSymptoms({
           text: trimmed,
           use_symptom_parser: useParser,
         });
-        const assistantSummary = addAnalysis(analysis);
-        await persistTurn(userSummary || "Submitted", assistantSummary);
+        addAnalysis(analysis);
+        await persistTurn(userSummary || "Submitted", serializeAnalysisMessage(analysis));
       } else {
         const assistantText = await runChatTurn(trimmed);
         await persistTurn(userSummary || "Submitted", assistantText);
@@ -554,7 +889,13 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
               void handleSend();
             }
           }}
-          placeholder={clarificationContext ? "Answer the follow-up questions here" : t.chat.placeholder}
+          placeholder={
+            clarificationContext
+              ? clarificationContext.language === "ar"
+                ? "اكتب إجابات أسئلة المتابعة هنا"
+                : "Answer the follow-up questions here"
+              : t.chat.placeholder
+          }
           disabled={loading}
         />
         <span className="hidden rounded-2xl bg-[var(--brand-soft)] px-3 py-2 text-xs font-semibold text-[var(--brand-primary)] sm:inline-flex">
@@ -732,7 +1073,7 @@ export function MedicalChat({ compact = false, initialPrompt, userName = "there"
 
           {clarificationContext?.questions.length ? (
             <div className="border-t border-[var(--brand-border)] bg-[var(--brand-soft)] px-5 py-3 text-sm text-[var(--brand-text)]">
-              <p className="font-semibold">Follow-up</p>
+              <p className="font-semibold">{clarificationContext.language === "ar" ? "متابعة" : "Follow-up"}</p>
               <ul className="mt-2 space-y-1">
                 {clarificationContext.questions.map((question) => (
                   <li key={question}>{question}</li>
